@@ -25,3 +25,7 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
     detectSessionInUrl: false,
   },
 });
+
+// Al final de tu archivo src/config/supabase.js, después de export const supabase = ...
+console.log('🔧 Supabase configurado con URL:', supabaseUrl);
+console.log('🔧 Supabase configurado correctamente');
