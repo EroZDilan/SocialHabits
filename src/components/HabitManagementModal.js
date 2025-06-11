@@ -327,6 +327,7 @@ const habitData = {
               value={habitName}
               onChangeText={setHabitName}
               placeholder="ej. Leer 30 minutos, Hacer ejercicio, Meditar..."
+              placeholderTextColor="#95a5a6"
               maxLength={50}
               autoCapitalize="sentences"
               autoCorrect={true}
@@ -352,6 +353,7 @@ const habitData = {
               maxLength={200}
               multiline={true}
               numberOfLines={3}
+              placeholderTextColor="#95a5a6"
               autoCapitalize="sentences"
               autoCorrect={true}
             />

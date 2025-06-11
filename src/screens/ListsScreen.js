@@ -445,6 +445,7 @@ export default function ListsScreen() {
                 value={newItemContent}
                 onChangeText={setNewItemContent}
                 placeholder="Escribe el elemento de la lista..."
+                placeholderTextColor="#95a5a6"
                 multiline={true}
                 numberOfLines={3}
                 autoFocus={true}
@@ -551,6 +552,7 @@ export default function ListsScreen() {
                 value={newListName}
                 onChangeText={setNewListName}
                 placeholder="ej. Compras para la cena, Tareas del proyecto..."
+                placeholderTextColor="#95a5a6"
                 maxLength={100}
               />
             </View>
@@ -562,6 +564,7 @@ export default function ListsScreen() {
                 value={newListDescription}
                 onChangeText={setNewListDescription}
                 placeholder="Describe el propósito de esta lista..."
+                placeholderTextColor="#95a5a6"
                 multiline={true}
                 numberOfLines={3}
                 maxLength={300}

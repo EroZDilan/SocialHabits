@@ -447,6 +447,7 @@ export default function ProfileEditModal({ visible, onClose, onSave, currentProf
                 placeholder="tu_nombre_usuario"
                 maxLength={30}
                 autoCapitalize="none"
+                placeholderTextColor="#95a5a6"
                 autoCorrect={false}
               />
               {usernameError ? <Text style={styles.errorText}>{usernameError}</Text> : null}
@@ -462,6 +463,7 @@ export default function ProfileEditModal({ visible, onClose, onSave, currentProf
                 value={fullName}
                 onChangeText={setFullName}
                 placeholder="Tu nombre completo"
+                placeholderTextColor="#95a5a6"
                 maxLength={100}
                 autoCapitalize="words"
               />
@@ -474,6 +476,7 @@ export default function ProfileEditModal({ visible, onClose, onSave, currentProf
                 value={bio}
                 onChangeText={setBio}
                 placeholder="Cuéntanos sobre ti, tus objetivos y lo que te motiva..."
+                placeholderTextColor="#95a5a6"
                 maxLength={300}
                 multiline={true}
                 numberOfLines={4}
@@ -491,6 +494,7 @@ export default function ProfileEditModal({ visible, onClose, onSave, currentProf
                 value={location}
                 onChangeText={setLocation}
                 placeholder="Ciudad, País"
+                placeholderTextColor="#95a5a6"
                 maxLength={100}
                 autoCapitalize="words"
               />
@@ -506,6 +510,7 @@ export default function ProfileEditModal({ visible, onClose, onSave, currentProf
                   if (websiteError) setWebsiteError('');
                 }}
                 placeholder="https://tu-sitio-web.com"
+                placeholderTextColor="#95a5a6"
                 maxLength={200}
                 autoCapitalize="none"
                 autoCorrect={false}

@@ -210,6 +210,7 @@ const resetForm = () => {
               onChangeText={setGroupName}
               placeholder="ej. Amigos del Gym, Familia Saludable, Compañeros de Trabajo..."
               maxLength={50}
+              placeholderTextColor="#95a5a6"
               autoCapitalize="words"
               autoCorrect={true}
             />
@@ -234,6 +235,7 @@ const resetForm = () => {
               maxLength={300}
               multiline={true}
               numberOfLines={4}
+              placeholderTextColor="#95a5a6"
               autoCapitalize="sentences"
               autoCorrect={true}
             />

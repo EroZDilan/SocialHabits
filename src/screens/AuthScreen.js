@@ -30,70 +30,92 @@ export default function AuthScreen() {
 
   // Función para manejar el registro de nuevos usuarios
   // Esta función coordina tanto la creación de la cuenta como la configuración inicial del perfil
-  const handleSignUp = async () => {
-    // Validación básica de campos requeridos
-    // Verificamos que todos los campos necesarios estén llenos antes de proceder
-    if (!email || !password || !username || !fullName) {
-      Alert.alert('Error', 'Por favor completa todos los campos');
-      return;
-    }
+const handleSignUp = async () => {
+  // Toda tu validación existente permanece igual...
+  
+  if (!email || !password || !username || !fullName) {
+    Alert.alert('Error', 'Por favor completa todos los campos');
+    return;
+  }
 
-    // Validación de formato de email usando una expresión regular básica
-    // Esto previene errores comunes de formato antes de enviar la solicitud al servidor
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailRegex.test(email)) {
-      Alert.alert('Error', 'Por favor ingresa un email válido');
-      return;
-    }
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  if (!emailRegex.test(email)) {
+    Alert.alert('Error', 'Por favor ingresa un email válido');
+    return;
+  }
 
-    // Validación de longitud de contraseña por seguridad
-    // Las contraseñas cortas son vulnerables a ataques de fuerza bruta
-    if (password.length < 6) {
-      Alert.alert('Error', 'La contraseña debe tener al menos 6 caracteres');
-      return;
-    }
+  if (password.length < 6) {
+    Alert.alert('Error', 'La contraseña debe tener al menos 6 caracteres');
+    return;
+  }
 
-    setLoading(true);
-    
-    try {
-      // Intentamos crear la nueva cuenta de usuario usando Supabase Auth
-      // Los metadatos adicionales se almacenan para ser usados por nuestro trigger de base de datos
-      const { data, error } = await supabase.auth.signUp({
-        email: email.trim().toLowerCase(), // Normalizamos el email para consistencia
-        password: password,
-        options: {
-          // Los metadatos se pasan al trigger que crea automáticamente el perfil
-          data: {
-            username: username.trim(),
-            full_name: fullName.trim(),
-          }
+  setLoading(true);
+  
+  try {
+    console.log('🔐 Iniciando proceso de registro para:', email.trim().toLowerCase());
+    console.log('🔐 Datos a enviar:', {
+      email: email.trim().toLowerCase(),
+      username: username.trim(),
+      full_name: fullName.trim()
+    });
+
+    // Intentamos crear la cuenta
+    const { data, error } = await supabase.auth.signUp({
+      email: email.trim().toLowerCase(),
+      password: password,
+      options: {
+        data: {
+          username: username.trim(),
+          full_name: fullName.trim(),
         }
-      });
-
-      if (error) {
-        // Si Supabase retorna un error, lo mostramos al usuario de manera comprensible
-        Alert.alert('Error de Registro', error.message);
-        return;
       }
+    });
 
-      // Informamos al usuario sobre el proceso de verificación de email
-      // Supabase envía automáticamente un email de confirmación por seguridad
-      Alert.alert(
-        'Registro Exitoso', 
-        'Por favor verifica tu email antes de iniciar sesión. Revisa tu bandeja de entrada y spam.',
-        [{ text: 'OK', onPress: () => setIsSignUp(false) }]
-      );
+    console.log('🔐 Respuesta de Supabase Auth:', { data, error });
 
-    } catch (error) {
-      // Manejo de errores inesperados que no vienen directamente de Supabase
-      Alert.alert('Error', 'Ocurrió un error inesperado. Intenta nuevamente.');
-      console.error('Error de registro:', error);
-    } finally {
-      // Siempre desactivamos el estado de carga, sin importar si la operación fue exitosa o no
-      setLoading(false);
+    if (error) {
+      console.error('❌ Error específico de Supabase Auth:', {
+        message: error.message,
+        status: error.status,
+        statusCode: error.statusCode,
+        details: error
+      });
+      
+      // Proporcionamos mensajes de error más específicos
+      if (error.message.includes('rate limit')) {
+        Alert.alert('Error', 'Demasiados intentos de registro. Espera unos minutos e intenta nuevamente.');
+      } else if (error.message.includes('already registered')) {
+        Alert.alert('Error', 'Este email ya está registrado. ¿Quizás quieres iniciar sesión en su lugar?');
+      } else if (error.message.includes('invalid email')) {
+        Alert.alert('Error', 'El formato del email no es válido.');
+      } else if (error.message.includes('weak password')) {
+        Alert.alert('Error', 'La contraseña es demasiado débil. Intenta con una contraseña más segura.');
+      } else {
+        Alert.alert('Error de Registro', `Error detallado: ${error.message}`);
+      }
+      return;
     }
-  };
 
+    console.log('✅ Cuenta de autenticación creada exitosamente');
+    
+    // Si llegamos aquí, la cuenta se creó exitosamente
+    Alert.alert(
+      'Registro Exitoso', 
+      'Por favor verifica tu email antes de iniciar sesión. Revisa tu bandeja de entrada y spam.',
+      [{ text: 'OK', onPress: () => setIsSignUp(false) }]
+    );
+
+  } catch (error) {
+    console.error('💥 Error inesperado durante el registro:', {
+      message: error.message,
+      stack: error.stack,
+      error: error
+    });
+    Alert.alert('Error Inesperado', `Ocurrió un error inesperado: ${error.message}. Por favor contacta soporte si el problema persiste.`);
+  } finally {
+    setLoading(false);
+  }
+};
   // Función para manejar el inicio de sesión de usuarios existentes
   // Esta función es más simple que el registro porque no requiere creación de perfil
   const handleSignIn = async () => {
@@ -146,6 +168,8 @@ export default function AuthScreen() {
     }
   };
 
+  
+
   return (
     <KeyboardAvoidingView 
       style={styles.container}
@@ -175,6 +199,7 @@ export default function AuthScreen() {
                 placeholder="Nombre de usuario"
                 value={username}
                 onChangeText={setUsername}
+                placeholderTextColor="#95a5a6"
                 autoCapitalize="none"
                 autoCorrect={false}
               />
@@ -182,6 +207,7 @@ export default function AuthScreen() {
                 style={styles.input}
                 placeholder="Nombre completo"
                 value={fullName}
+                placeholderTextColor="#95a5a6"
                 onChangeText={setFullName}
                 autoCapitalize="words"
               />
@@ -194,6 +220,7 @@ export default function AuthScreen() {
             placeholder="Email"
             value={email}
             onChangeText={setEmail}
+            placeholderTextColor="#95a5a6"
             keyboardType="email-address"
             autoCapitalize="none"
             autoCorrect={false}
@@ -203,6 +230,7 @@ export default function AuthScreen() {
             style={styles.input}
             placeholder="Contraseña"
             value={password}
+            placeholderTextColor="#95a5a6"
             onChangeText={setPassword}
             secureTextEntry
             autoCapitalize="none"
