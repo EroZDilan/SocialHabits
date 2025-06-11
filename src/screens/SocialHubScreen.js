@@ -11,6 +11,9 @@ import {
 import { supabase } from '../config/supabase';
 import { useAuth } from '../contexts/AuthContext';
 import GroupCreationModal from '../components/GroupCreationModal';
+import GroupInvitationModal from '../components/GroupInvitationModal';
+import PendingInvitationsComponent from '../components/PendingInvitationsComponent';
+import InviteCodeComponent from '../components/InviteCodeComponent';
 
 export default function SocialHubScreen() {
   // Accedemos al usuario autenticado para todas las funcionalidades sociales
@@ -20,17 +23,6 @@ export default function SocialHubScreen() {
   const [userGroups, setUserGroups] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-
-  // Estados existentes para campos del formulario...
-const [restDaysPerWeek, setRestDaysPerWeek] = useState(0);
-
-// Nuevos estados para funcionalidad de grupos
-const [selectedGroupId, setSelectedGroupId] = useState(null);
-const [isShared, setIsShared] = useState(false);
-const [loadingGroups, setLoadingGroups] = useState(false);
-
-// Estados existentes para validación...
-const [saving, setSaving] = useState(false);
   
   // Estados para manejar estadísticas sociales agregadas
   const [socialStats, setSocialStats] = useState({
@@ -42,6 +34,10 @@ const [saving, setSaving] = useState(false);
 
   // Estado para el modal de creación de grupos
   const [showGroupCreationModal, setShowGroupCreationModal] = useState(false);
+  
+  // Estados para el sistema de invitaciones
+  const [showInvitationModal, setShowInvitationModal] = useState(false);
+  const [selectedGroupForInvitation, setSelectedGroupForInvitation] = useState(null);
 
   // Función para cargar todos los grupos donde el usuario es miembro
   // Esta función establece la base para todas las funcionalidades sociales
@@ -196,6 +192,20 @@ const [saving, setSaving] = useState(false);
     setShowGroupCreationModal(false);
   };
 
+  // Función para abrir el modal de invitaciones
+  const openInvitationModal = (group) => {
+    console.log('Social Hub: Abriendo modal de invitaciones para grupo:', group.name);
+    setSelectedGroupForInvitation(group);
+    setShowInvitationModal(true);
+  };
+
+  // Función para cerrar el modal de invitaciones
+  const closeInvitationModal = () => {
+    console.log('Social Hub: Cerrando modal de invitaciones');
+    setShowInvitationModal(false);
+    setSelectedGroupForInvitation(null);
+  };
+
   // Función callback que se ejecuta cuando se crea exitosamente un nuevo grupo
   const handleGroupCreated = async (newGroup) => {
     console.log('Social Hub: Grupo creado exitosamente:', newGroup.name);
@@ -241,17 +251,36 @@ const [saving, setSaving] = useState(false);
     }
   };
 
+  // Función para manejar respuestas a invitaciones
+  const handleInvitationResponse = async (invitation, response) => {
+    console.log('Social Hub: Invitación respondida:', response, 'para grupo:', invitation.groups.name);
+    
+    // Si el usuario aceptó la invitación, recargamos los grupos para mostrar el nuevo grupo
+    if (response === 'accepted') {
+      console.log('Social Hub: Recargando grupos después de aceptar invitación');
+      await loadUserGroups();
+    }
+  };
+
+  // Función para manejar códigos de invitación aceptados
+  const handleCodeAccepted = async (invitation) => {
+    console.log('Social Hub: Código aceptado para grupo:', invitation.groups.name);
+    
+    // Recargamos los grupos para mostrar el nuevo grupo
+    await loadUserGroups();
+  };
+
   // Función para iniciar el proceso de creación de un nuevo grupo
   const createNewGroup = () => {
     console.log('Social Hub: Usuario solicitó crear nuevo grupo');
     openGroupCreationModal();
   };
 
-  // Función para unirse a un grupo existente
+  // Función para unirse a un grupo existente (placeholder)
   const joinGroup = () => {
     Alert.alert(
       'Unirse a Grupo',
-      'La funcionalidad para unirse a grupos se implementará próximamente.',
+      'Puedes unirte a grupos usando códigos de invitación en la sección de arriba, o pidiendo a un administrador que te envíe una invitación por email.',
       [{ text: 'Entendido', style: 'default' }]
     );
   };
@@ -271,6 +300,11 @@ const [saving, setSaving] = useState(false);
     ];
 
     if (isAdmin) {
+      // Añadimos la opción de invitar miembros para administradores
+      options.push({
+        text: 'Invitar Miembros',
+        onPress: () => openInvitationModal(group)
+      });
       options.push({
         text: 'Gestionar Miembros',
         onPress: () => manageGroupMembers(group)
@@ -308,7 +342,7 @@ const [saving, setSaving] = useState(false);
   const manageGroupMembers = (group) => {
     Alert.alert(
       'Gestionar Miembros',
-      'La funcionalidad de gestión de miembros se implementará en el siguiente paso, incluyendo invitaciones y gestión de roles.',
+      'La funcionalidad de gestión de miembros se implementará en el siguiente paso, incluyendo ver lista de miembros y gestión de roles.',
       [{ text: 'Entendido', style: 'default' }]
     );
   };
@@ -390,7 +424,6 @@ const [saving, setSaving] = useState(false);
   };
 
   // Efecto para cargar datos cuando el componente se monta o el usuario cambia
-  // Efecto que inicializa el formulario cuando cambia el hábito en edición
   useEffect(() => {
     if (user) {
       loadUserGroups();
@@ -459,6 +492,12 @@ const [saving, setSaving] = useState(false);
           </View>
         </View>
 
+        {/* Componente de invitaciones pendientes - aparece solo si hay invitaciones */}
+        <PendingInvitationsComponent onInvitationResponse={handleInvitationResponse} />
+        
+        {/* Componente para unirse por código */}
+        <InviteCodeComponent onCodeAccepted={handleCodeAccepted} />
+
         {/* Sección de grupos del usuario */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Mis Grupos</Text>
@@ -474,34 +513,45 @@ const [saving, setSaving] = useState(false);
             </View>
           ) : (
             userGroups.map((membership) => (
-              <TouchableOpacity 
-                key={membership.id} 
-                style={styles.groupCard}
-                onPress={() => showGroupOptions(membership)}
-                activeOpacity={0.7}
-              >
-                <View style={styles.groupHeader}>
-                  <Text style={styles.groupName}>{membership.groups.name}</Text>
-                  <View style={[
-                    styles.roleBadge, 
-                    membership.role === 'admin' ? styles.adminBadge : styles.memberBadge
-                  ]}>
-                    <Text style={styles.roleText}>
-                      {membership.role === 'admin' ? 'Admin' : 'Miembro'}
-                    </Text>
+              <View key={membership.id} style={styles.groupCard}>
+                <TouchableOpacity 
+                  style={styles.groupCardContent}
+                  onPress={() => showGroupOptions(membership)}
+                  activeOpacity={0.7}
+                >
+                  <View style={styles.groupHeader}>
+                    <Text style={styles.groupName}>{membership.groups.name}</Text>
+                    <View style={[
+                      styles.roleBadge, 
+                      membership.role === 'admin' ? styles.adminBadge : styles.memberBadge
+                    ]}>
+                      <Text style={styles.roleText}>
+                        {membership.role === 'admin' ? 'Admin' : 'Miembro'}
+                      </Text>
+                    </View>
                   </View>
-                </View>
-                
-                {membership.groups.description && (
-                  <Text style={styles.groupDescription}>
-                    {membership.groups.description}
+                  
+                  {membership.groups.description && (
+                    <Text style={styles.groupDescription}>
+                      {membership.groups.description}
+                    </Text>
+                  )}
+                  
+                  <Text style={styles.groupCreator}>
+                    Creado por: {membership.groups.profiles?.full_name || 'Usuario'}
                   </Text>
+                </TouchableOpacity>
+
+                {/* Botón de invitación rápida solo para administradores */}
+                {membership.role === 'admin' && (
+                  <TouchableOpacity
+                    style={styles.quickInviteButton}
+                    onPress={() => openInvitationModal(membership.groups)}
+                  >
+                    <Text style={styles.quickInviteButtonText}>📧 Invitar Miembros</Text>
+                  </TouchableOpacity>
                 )}
-                
-                <Text style={styles.groupCreator}>
-                  Creado por: {membership.groups.profiles?.full_name || 'Usuario'}
-                </Text>
-              </TouchableOpacity>
+              </View>
             ))
           )}
         </View>
@@ -523,6 +573,13 @@ const [saving, setSaving] = useState(false);
         visible={showGroupCreationModal}
         onClose={closeGroupCreationModal}
         onGroupCreated={handleGroupCreated}
+      />
+
+      {/* Modal de invitaciones de grupos */}
+      <GroupInvitationModal
+        visible={showInvitationModal}
+        onClose={closeInvitationModal}
+        group={selectedGroupForInvitation}
       />
     </View>
   );
@@ -643,13 +700,17 @@ const styles = StyleSheet.create({
   groupCard: {
     backgroundColor: '#ffffff',
     borderRadius: 12,
-    padding: 15,
+    padding: 0,
     marginBottom: 10,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.1,
     shadowRadius: 4,
     elevation: 2,
+    overflow: 'hidden',
+  },
+  groupCardContent: {
+    padding: 15,
   },
   groupHeader: {
     flexDirection: 'row',
@@ -688,6 +749,19 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#95a5a6',
     fontStyle: 'italic',
+  },
+  quickInviteButton: {
+    backgroundColor: '#27ae60',
+    paddingVertical: 12,
+    paddingHorizontal: 15,
+    alignItems: 'center',
+    borderTopWidth: 1,
+    borderTopColor: '#e8f5e8',
+  },
+  quickInviteButtonText: {
+    color: '#ffffff',
+    fontSize: 14,
+    fontWeight: 'bold',
   },
   actionButtons: {
     paddingBottom: 20,
