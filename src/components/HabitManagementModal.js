@@ -30,6 +30,12 @@ export default function HabitManagementModal({
   const [habitDescription, setHabitDescription] = useState('');
   const [allowRestDays, setAllowRestDays] = useState(false);
   const [restDaysPerWeek, setRestDaysPerWeek] = useState(0);
+
+// Nuevos estados para funcionalidad de grupos - AÑADIR AQUÍ
+const [userGroups, setUserGroups] = useState([]);
+const [selectedGroupId, setSelectedGroupId] = useState(null);
+const [isShared, setIsShared] = useState(false);
+const [loadingGroups, setLoadingGroups] = useState(false);
   
   // Estados para manejar la validación y el procesamiento
   const [saving, setSaving] = useState(false);
@@ -44,7 +50,11 @@ export default function HabitManagementModal({
 
   // Efecto que inicializa el formulario cuando cambia el hábito en edición
   // Esto maneja tanto la apertura en modo crear (editingHabit = null) como en modo editar
-  useEffect(() => {
+useEffect(() => {
+  if (visible) {
+    // Cargamos los grupos de administrador cuando el modal se abre
+    loadUserAdminGroups();
+    
     if (isEditing && editingHabit) {
       // Si estamos editando, prellenamos el formulario con los datos existentes
       setHabitName(editingHabit.name || '');
@@ -52,23 +62,72 @@ export default function HabitManagementModal({
       setAllowRestDays(editingHabit.allow_rest_days || false);
       setRestDaysPerWeek(editingHabit.rest_days_per_week || 0);
       
-      console.log('Modal: Inicializado para edición:', editingHabit.name);
+      // Configuramos los estados de compartir si el hábito está compartido
+      if (editingHabit.group_id) {
+        setIsShared(true);
+        setSelectedGroupId(editingHabit.group_id);
+      } else {
+        setIsShared(false);
+        setSelectedGroupId(null);
+      }
+      
+      console.log('HabitModal: Inicializado para edición:', editingHabit.name);
     } else {
       // Si estamos creando, limpiamos todos los campos
       resetForm();
-      console.log('Modal: Inicializado para creación');
+      console.log('HabitModal: Inicializado para creación');
     }
-  }, [editingHabit, visible]);
-
+  }
+}, [editingHabit, visible]);
   // Función para limpiar completamente el formulario
   const resetForm = () => {
-    setHabitName('');
-    setHabitDescription('');
-    setAllowRestDays(false);
-    setRestDaysPerWeek(0);
-    setNameError('');
-    setDescriptionError('');
-  };
+  setHabitName('');
+  setHabitDescription('');
+  setAllowRestDays(false);
+  setRestDaysPerWeek(0);
+  // AÑADIR ESTAS DOS LÍNEAS AQUÍ
+  setIsShared(false);
+  setSelectedGroupId(null);
+  setNameError('');
+  setDescriptionError('');
+};
+
+// Función para cargar grupos donde el usuario es administrador - AÑADIR AQUÍ
+const loadUserAdminGroups = async () => {
+  if (!user) return;
+
+  setLoadingGroups(true);
+  try {
+    console.log('HabitModal: Cargando grupos donde el usuario es administrador...');
+    
+    const { data: adminGroups, error } = await supabase
+      .from('group_members')
+      .select(`
+        groups (
+          id,
+          name,
+          description
+        )
+      `)
+      .eq('user_id', user.id)
+      .eq('role', 'admin');
+
+    if (error) {
+      console.error('HabitModal: Error al cargar grupos de administrador:', error);
+      return;
+    }
+
+    const groups = adminGroups?.map(membership => membership.groups) || [];
+    setUserGroups(groups);
+    console.log('HabitModal: Grupos de administrador cargados:', groups.length);
+
+  } catch (error) {
+    console.error('HabitModal: Error inesperado al cargar grupos:', error);
+  } finally {
+    setLoadingGroups(false);
+  }
+};
+
 
   // Función de validación que verifica la integridad de los datos del formulario
   // Esta función implementa validación tanto de formato como de lógica de negocio
@@ -125,15 +184,15 @@ export default function HabitManagementModal({
 
     try {
       // Preparamos los datos del hábito para enviar a la base de datos
-      const habitData = {
-        name: habitName.trim(),
-        description: habitDescription.trim() || null,
-        allow_rest_days: allowRestDays,
-        rest_days_per_week: allowRestDays ? restDaysPerWeek : 0,
-        user_id: user.id,
-        is_active: true
-      };
-
+const habitData = {
+  name: habitName.trim(),
+  description: habitDescription.trim() || null,
+  allow_rest_days: allowRestDays,
+  rest_days_per_week: allowRestDays ? restDaysPerWeek : 0,
+  user_id: user.id,
+  group_id: isShared ? selectedGroupId : null, // AÑADIR ESTA LÍNEA
+  is_active: true
+};
       console.log('Modal: Datos preparados:', habitData);
 
       let result;
@@ -348,6 +407,74 @@ export default function HabitManagementModal({
             )}
           </View>
 
+          {/* Configuración de compartir con grupos - solo si el usuario tiene grupos donde es admin */}
+{userGroups.length > 0 && (
+  <View style={styles.fieldContainer}>
+    <View style={styles.switchContainer}>
+      <View style={styles.switchLabelContainer}>
+        <Text style={styles.fieldLabel}>Compartir con Grupo</Text>
+        <Text style={styles.switchDescription}>
+          Los hábitos compartidos son visibles para todos los miembros del grupo
+        </Text>
+      </View>
+      <Switch
+        value={isShared}
+        onValueChange={(value) => {
+          setIsShared(value);
+          if (!value) setSelectedGroupId(null);
+        }}
+        trackColor={{ false: '#e0e0e0', true: '#27ae60' }}
+        thumbColor={isShared ? '#ffffff' : '#f4f3f4'}
+      />
+    </View>
+    
+    {isShared && (
+      <View style={styles.groupSelectionContainer}>
+        <Text style={styles.fieldLabel}>Seleccionar Grupo</Text>
+        {loadingGroups ? (
+          <Text style={styles.loadingText}>Cargando grupos...</Text>
+        ) : (
+          <ScrollView style={styles.groupsList} showsVerticalScrollIndicator={false}>
+            {userGroups.map(group => (
+              <TouchableOpacity
+                key={group.id}
+                style={[
+                  styles.groupOption,
+                  selectedGroupId === group.id ? styles.groupOptionSelected : null
+                ]}
+                onPress={() => setSelectedGroupId(group.id)}
+              >
+                <View style={styles.groupOptionContent}>
+                  <Text style={[
+                    styles.groupOptionName,
+                    selectedGroupId === group.id ? styles.groupOptionNameSelected : null
+                  ]}>
+                    {group.name}
+                  </Text>
+                  {group.description && (
+                    <Text style={[
+                      styles.groupOptionDescription,
+                      selectedGroupId === group.id ? styles.groupOptionDescriptionSelected : null
+                    ]}>
+                      {group.description}
+                    </Text>
+                  )}
+                </View>
+                {selectedGroupId === group.id && (
+                  <Text style={styles.selectedIndicator}>✓</Text>
+                )}
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
+        )}
+        <Text style={styles.helperText}>
+          Solo puedes compartir hábitos con grupos donde eres administrador
+        </Text>
+      </View>
+    )}
+  </View>
+)}
+
           {/* Información adicional y consejos */}
           <View style={styles.tipsContainer}>
             <Text style={styles.tipsTitle}>💡 Consejos para crear hábitos exitosos:</Text>
@@ -521,4 +648,63 @@ const styles = StyleSheet.create({
     marginBottom: 5,
     lineHeight: 16,
   },
+   // Añadir estos estilos al objeto styles existente
+groupSelectionContainer: {
+  marginTop: 15,
+  backgroundColor: '#ffffff',
+  padding: 15,
+  borderRadius: 12,
+  borderWidth: 1,
+  borderColor: '#e0e0e0',
+},
+groupsList: {
+  maxHeight: 150,
+  marginTop: 10,
+  marginBottom: 10,
+},
+groupOption: {
+  backgroundColor: '#f8f9fa',
+  padding: 12,
+  borderRadius: 8,
+  marginBottom: 8,
+  borderWidth: 1,
+  borderColor: '#e0e0e0',
+  flexDirection: 'row',
+  justifyContent: 'space-between',
+  alignItems: 'center',
+},
+groupOptionSelected: {
+  backgroundColor: '#e8f5e8',
+  borderColor: '#27ae60',
+},
+groupOptionContent: {
+  flex: 1,
+},
+groupOptionName: {
+  fontSize: 14,
+  fontWeight: '600',
+  color: '#2c3e50',
+},
+groupOptionNameSelected: {
+  color: '#27ae60',
+},
+groupOptionDescription: {
+  fontSize: 12,
+  color: '#7f8c8d',
+  marginTop: 2,
+},
+groupOptionDescriptionSelected: {
+  color: '#2d5a3d',
+},
+selectedIndicator: {
+  fontSize: 16,
+  color: '#27ae60',
+  fontWeight: 'bold',
+},
+loadingText: {
+  fontSize: 14,
+  color: '#7f8c8d',
+  textAlign: 'center',
+  marginVertical: 10,
+},
 });

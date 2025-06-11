@@ -32,6 +32,9 @@ export default function HabitsScreen() {
   const [motivationalMessage, setMotivationalMessage] = useState('');
   const [messageOpacity] = useState(new Animated.Value(0));
   const messageTimeoutRef = useRef(null);
+
+  const [availableSharedHabits, setAvailableSharedHabits] = useState([]);
+const [loadingAvailableHabits, setLoadingAvailableHabits] = useState(false);
   const [showManagementModal, setShowManagementModal] = useState(false);
 const [editingHabit, setEditingHabit] = useState(null);
 const [deletingHabitId, setDeletingHabitId] = useState(null);
@@ -320,56 +323,76 @@ const showHabitOptions = (habit) => {
   // Función para cargar todos los hábitos del usuario desde la base de datos
 // Esta versión incluye logging extensivo para diagnosticar problemas de conectividad
 const loadUserHabits = async () => {
-  console.log('🏁 loadUserHabits: Iniciando función');
-  
   if (!user) {
-    console.log('❌ loadUserHabits: No hay usuario autenticado');
-    setLoading(false);
+    console.log('No hay usuario autenticado, no se pueden cargar hábitos');
     return;
   }
 
-  console.log('👤 loadUserHabits: Usuario encontrado:', user.email, 'ID:', user.id);
-
   try {
-    console.log('🔍 loadUserHabits: Iniciando consulta a Supabase...');
+    console.log('Cargando hábitos para el usuario:', user.email);
     
-    // Consultamos la base de datos para obtener todos los hábitos del usuario actual
-    const { data: habitsData, error: habitsError } = await supabase
+    // Primero cargamos los hábitos personales del usuario (sin group_id)
+    console.log('📱 Cargando hábitos personales...');
+    const { data: personalHabits, error: personalError } = await supabase
       .from('habits')
       .select('*')
       .eq('user_id', user.id)
+      .is('group_id', null) // Hábitos que no están asignados a ningún grupo
       .eq('is_active', true)
       .order('created_at', { ascending: false });
 
-    console.log('📊 loadUserHabits: Respuesta de Supabase recibida');
-    console.log('📊 loadUserHabits: Datos:', habitsData);
-    console.log('📊 loadUserHabits: Error:', habitsError);
-
-    if (habitsError) {
-      console.error('❌ loadUserHabits: Error en consulta de hábitos:', habitsError);
-      Alert.alert('Error de Conexión', `No se pudieron cargar tus hábitos: ${habitsError.message}`);
-      setLoading(false);
-      setRefreshing(false);
+    if (personalError) {
+      console.error('Error al cargar hábitos personales:', personalError);
+      Alert.alert('Error', 'No se pudieron cargar tus hábitos personales. Intenta nuevamente.');
       return;
     }
 
-    console.log(`📈 loadUserHabits: Encontrados ${habitsData?.length || 0} hábitos`);
+    console.log(`📱 Hábitos personales cargados: ${personalHabits?.length || 0}`);
 
-    // Si no hay hábitos, creamos algunos hábitos de ejemplo
-    if (!habitsData || habitsData.length === 0) {
-      console.log('🆕 loadUserHabits: No hay hábitos, creando ejemplos...');
+    // Ahora cargamos los hábitos compartidos de todos los grupos donde el usuario es miembro
+    console.log('👥 Cargando hábitos compartidos de grupos...');
+    const { data: sharedHabits, error: sharedError } = await supabase
+      .from('habits')
+      .select(`
+        *,
+        groups (
+          id,
+          name,
+          description
+        )
+      `)
+      .not('group_id', 'is', null) // Hábitos que SÍ están asignados a grupos
+      .eq('is_active', true)
+      .in('group_id', await getUserGroupIds()) // Solo grupos donde el usuario es miembro
+      .order('created_at', { ascending: false });
+
+    if (sharedError) {
+      console.error('Error al cargar hábitos compartidos:', sharedError);
+      // Los hábitos compartidos son opcionales, así que continuamos con solo los personales
+      console.log('Continuando solo con hábitos personales...');
+    }
+
+    console.log(`👥 Hábitos compartidos cargados: ${sharedHabits?.length || 0}`);
+
+    // Combinamos ambos tipos de hábitos en una sola lista
+    const allHabits = [
+      ...(personalHabits || []).map(habit => ({ ...habit, isShared: false })),
+      ...(sharedHabits || []).map(habit => ({ ...habit, isShared: true }))
+    ];
+
+    console.log(`📊 Total de hábitos combinados: ${allHabits.length}`);
+
+    // Si no hay hábitos en absoluto, creamos algunos hábitos de ejemplo personales
+    if (allHabits.length === 0) {
+      console.log('No se encontraron hábitos, creando hábitos de ejemplo...');
       await createDefaultHabits();
       return; // createDefaultHabits llamará a loadUserHabits nuevamente
     }
 
-    console.log('🧮 loadUserHabits: Calculando estadísticas para cada hábito...');
-
     // Para cada hábito, calculamos las estadísticas dinámicas
     const habitsWithStats = await Promise.all(
-      habitsData.map(async (habit, index) => {
-        console.log(`📊 Calculando stats para hábito ${index + 1}/${habitsData.length}: ${habit.name}`);
+      allHabits.map(async (habit) => {
         const stats = await calculateHabitStats(habit.id);
-        console.log(`✅ Stats calculadas para ${habit.name}:`, stats);
         return {
           ...habit,
           ...stats
@@ -377,20 +400,37 @@ const loadUserHabits = async () => {
       })
     );
 
-    console.log('🎉 loadUserHabits: Todas las estadísticas calculadas exitosamente');
-    console.log('🎉 loadUserHabits: Hábitos finales:', habitsWithStats);
-
     setHabits(habitsWithStats);
-    console.log(`✅ loadUserHabits: Estado actualizado con ${habitsWithStats.length} hábitos`);
+    console.log(`🎉 Carga completa: ${habitsWithStats.length} hábitos con estadísticas`);
 
   } catch (error) {
-    console.error('💥 loadUserHabits: Error inesperado:', error);
-    console.error('💥 loadUserHabits: Stack trace:', error.stack);
-    Alert.alert('Error Inesperado', `Ocurrió un error: ${error.message}`);
+    console.error('Error inesperado al cargar hábitos:', error);
+    Alert.alert('Error', 'Ocurrió un error inesperado. Intenta nuevamente.');
   } finally {
-    console.log('🏁 loadUserHabits: Finalizando función, actualizando estados de loading');
     setLoading(false);
     setRefreshing(false);
+  }
+};
+
+const getUserGroupIds = async () => {
+  try {
+    const { data: memberships, error } = await supabase
+      .from('group_members')
+      .select('group_id')
+      .eq('user_id', user.id);
+
+    if (error) {
+      console.error('Error al obtener IDs de grupos:', error);
+      return []; // Retornamos array vacío si hay error
+    }
+
+    const groupIds = memberships?.map(m => m.group_id) || [];
+    console.log(`👥 Usuario es miembro de ${groupIds.length} grupos:`, groupIds);
+    return groupIds;
+
+  } catch (error) {
+    console.error('Error inesperado al obtener IDs de grupos:', error);
+    return [];
   }
 };
 
@@ -583,6 +623,154 @@ const createDefaultHabits = async () => {
     const streakBonus = currentStreak * 5; // 5 puntos adicionales por cada día de racha actual
     return baseExperience + streakBonus;
   };
+
+  // Función para cargar hábitos compartidos disponibles en los grupos del usuario
+// que el usuario aún no está siguiendo activamente
+const loadAvailableSharedHabits = async () => {
+  if (!user) return;
+
+  setLoadingAvailableHabits(true);
+  try {
+    console.log('🔍 Cargando hábitos compartidos disponibles...');
+
+    // Primero obtenemos los IDs de grupos donde el usuario es miembro
+    const { data: userGroups, error: groupsError } = await supabase
+      .from('group_members')
+      .select('group_id')
+      .eq('user_id', user.id);
+
+    if (groupsError || !userGroups || userGroups.length === 0) {
+      console.log('🔍 Usuario no pertenece a ningún grupo o error al cargar grupos');
+      setAvailableSharedHabits([]);
+      return;
+    }
+
+    const groupIds = userGroups.map(g => g.group_id);
+    console.log('🔍 Buscando hábitos en grupos:', groupIds);
+
+    // Obtenemos todos los hábitos compartidos en esos grupos
+    const { data: allSharedHabits, error: habitsError } = await supabase
+      .from('habits')
+      .select(`
+        *,
+        groups (
+          id,
+          name,
+          description
+        ),
+        profiles:user_id (
+          username,
+          full_name
+        )
+      `)
+      .in('group_id', groupIds)
+      .eq('is_active', true)
+      .neq('user_id', user.id); // No incluir hábitos creados por el usuario actual
+
+    if (habitsError) {
+      console.error('🔍 Error al cargar hábitos compartidos:', habitsError);
+      setAvailableSharedHabits([]);
+      return;
+    }
+
+    // Obtenemos los hábitos que el usuario ya está siguiendo para filtrarlos
+    const { data: userHabits, error: userHabitsError } = await supabase
+      .from('habits')
+      .select('group_id, name')
+      .eq('user_id', user.id)
+      .not('group_id', 'is', null);
+
+    if (userHabitsError) {
+      console.error('🔍 Error al cargar hábitos del usuario:', userHabitsError);
+    }
+
+    // Filtramos hábitos que el usuario ya no está siguiendo
+    // Esto evita duplicados y muestra solo nuevas oportunidades
+    const userSharedHabits = new Set(
+      (userHabits || []).map(h => `${h.group_id}-${h.name}`)
+    );
+
+    const availableHabits = (allSharedHabits || []).filter(habit => 
+      !userSharedHabits.has(`${habit.group_id}-${habit.name}`)
+    );
+
+    console.log(`🔍 Encontrados ${availableHabits.length} hábitos compartidos disponibles`);
+    setAvailableSharedHabits(availableHabits);
+
+  } catch (error) {
+    console.error('🔍 Error inesperado al cargar hábitos disponibles:', error);
+    setAvailableSharedHabits([]);
+  } finally {
+    setLoadingAvailableHabits(false);
+  }
+};
+
+// Función para que un usuario adopte un hábito compartido existente
+// Esto crea una copia personal del hábito compartido para el usuario
+const adoptSharedHabit = async (sharedHabit) => {
+  console.log('📥 Adoptando hábito compartido:', sharedHabit.name);
+
+  try {
+    // Creamos una copia del hábito compartido para el usuario actual
+    const adoptedHabitData = {
+      name: sharedHabit.name,
+      description: sharedHabit.description,
+      allow_rest_days: sharedHabit.allow_rest_days,
+      rest_days_per_week: sharedHabit.rest_days_per_week,
+      user_id: user.id,
+      group_id: sharedHabit.group_id, // Mantiene la conexión al grupo
+      is_active: true
+    };
+
+    const { data: newHabit, error } = await supabase
+      .from('habits')
+      .insert(adoptedHabitData)
+      .select()
+      .single();
+
+    if (error) {
+      console.error('📥 Error al adoptar hábito:', error);
+      Alert.alert('Error', 'No se pudo adoptar el hábito. Intenta nuevamente.');
+      return;
+    }
+
+    console.log('📥 Hábito adoptado exitosamente:', newHabit);
+
+    // Mostramos confirmación al usuario
+    Alert.alert(
+      'Hábito Adoptado',
+      `¡Genial! Ahora estás siguiendo "${sharedHabit.name}" junto con tu grupo "${sharedHabit.groups.name}".`,
+      [{ text: '¡Awesome!', style: 'default' }]
+    );
+
+    // Recargamos los hábitos del usuario y los hábitos disponibles
+    await loadUserHabits();
+    await loadAvailableSharedHabits();
+
+  } catch (error) {
+    console.error('📥 Error inesperado al adoptar hábito:', error);
+    Alert.alert('Error Inesperado', 'Ocurrió un error inesperado. Intenta nuevamente.');
+  }
+};
+
+// Función para mostrar detalles de un hábito compartido antes de adoptarlo
+// Esto permite que el usuario tome una decisión informada
+const showSharedHabitDetails = (sharedHabit) => {
+  const creator = sharedHabit.profiles?.full_name || sharedHabit.profiles?.username || 'Miembro del grupo';
+  
+  Alert.alert(
+    `${sharedHabit.name}`,
+    `Creado por: ${creator}\nGrupo: ${sharedHabit.groups.name}\n\nDescripción: ${sharedHabit.description || 'Sin descripción'}\n\n¿Te gustaría adoptar este hábito y empezar a seguirlo junto con tu grupo?`,
+    [
+      { text: 'Cancelar', style: 'cancel' },
+      { 
+        text: 'Adoptar Hábito', 
+        style: 'default',
+        onPress: () => adoptSharedHabit(sharedHabit)
+      }
+    ]
+  );
+};
 
   // Función principal para completar un hábito con persistencia en la nube
 // Esta función implementa actualizaciones optimistas para feedback inmediato
@@ -849,6 +1037,7 @@ const markRestDay = async (habitId) => {
   useEffect(() => {
     if (user) {
       loadUserHabits();
+      loadAvailableSharedHabits(); 
     }
   }, [user]);
 
@@ -856,6 +1045,7 @@ const markRestDay = async (habitId) => {
   const onRefresh = () => {
     setRefreshing(true);
     loadUserHabits();
+    loadAvailableSharedHabits(); 
   };
 
   // Conservamos todas las funciones de mensajes motivacionales y animaciones de la implementación anterior
@@ -905,121 +1095,191 @@ const markRestDay = async (habitId) => {
 
     {/* Lista scrolleable de hábitos con funcionalidad de pull-to-refresh */}
     <ScrollView 
-      style={styles.habitsContainer}
-      showsVerticalScrollIndicator={false}
-      refreshControl={
-        <RefreshControl
-          refreshing={refreshing}
-          onRefresh={onRefresh}
-          colors={['#3498db']}
-          tintColor="#3498db"
-        />
-      }
-    >
-      {habits.map(habit => (
-        <View key={habit.id} style={styles.habitCard}>
-          {/* Header del hábito con nombre, descripción, nivel y botón de opciones */}
-          <View style={styles.habitHeader}>
-            <View style={styles.habitInfo}>
-              <Text style={styles.habitName}>{habit.name}</Text>
-              <Text style={styles.habitDescription}>{habit.description}</Text>
-            </View>
-            
-            {/* Nueva sección que agrupa el badge de nivel y el botón de opciones */}
-            <View style={styles.habitActions}>
-              <View style={styles.levelBadge}>
-                <Text style={styles.levelText}>Nv. {habit.level}</Text>
+  style={styles.habitsContainer}
+  showsVerticalScrollIndicator={false}
+  refreshControl={
+    <RefreshControl
+      refreshing={refreshing}
+      onRefresh={onRefresh}
+      colors={['#3498db']}
+      tintColor="#3498db"
+    />
+  }
+>
+  {/* Sección principal de hábitos del usuario */}
+  {habits.map(habit => (
+    <View key={habit.id} style={styles.habitCard}>
+      {/* Header del hábito con nombre, descripción, nivel y botón de opciones */}
+      <View style={styles.habitHeader}>
+        <View style={styles.habitInfo}>
+          <View style={styles.habitNameContainer}>
+            <Text style={styles.habitName}>{habit.name}</Text>
+            {habit.isShared && (
+              <View style={styles.sharedIndicator}>
+                <Text style={styles.sharedIndicatorText}>👥</Text>
               </View>
-              
-              {/* Nuevo botón de opciones para editar y eliminar hábitos */}
-              <TouchableOpacity 
-                style={styles.optionsButton}
-                onPress={() => showHabitOptions(habit)}
-              >
-                <Text style={styles.optionsButtonText}>⋮</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-
-          {/* Estadísticas principales del hábito - racha, mejor racha, total */}
-          <View style={styles.statsContainer}>
-            <View style={styles.statItem}>
-              <Text style={styles.statNumber}>{habit.currentStreak}</Text>
-              <Text style={styles.statLabel}>Días seguidos</Text>
-            </View>
-
-            <View style={styles.statItem}>
-              <Text style={[
-                styles.statNumber, 
-                { color: habit.currentStreak > habit.bestStreak ? '#e74c3c' : '#7f8c8d' }
-              ]}>
-                {habit.bestStreak}
-              </Text>
-              <Text style={styles.statLabel}>Mejor racha</Text>
-            </View>
-
-            <View style={styles.statItem}>
-              <Text style={styles.statNumber}>{habit.totalCompletions}</Text>
-              <Text style={styles.statLabel}>Total</Text>
-            </View>
-          </View>
-
-          {/* Barra de progreso hacia el siguiente nivel con experiencia actual */}
-          <View style={styles.progressContainer}>
-            <Text style={styles.progressLabel}>
-              Progreso: {habit.experience % 100}/100 XP
-            </Text>
-            <View style={styles.progressBar}>
-              <View 
-                style={[
-                  styles.progressFill, 
-                  { width: `${(habit.experience % 100)}%` }
-                ]} 
-              />
-            </View>
-          </View>
-
-          {/* Información sobre días de descanso si el hábito los permite */}
-          {habit.allow_rest_days && (
-            <View style={styles.restDaysInfo}>
-              <Text style={styles.restDaysText}>
-                📅 Permite {habit.rest_days_per_week} días de descanso por semana
-              </Text>
-            </View>
-          )}
-
-          {/* Botones de acción para completar hábito y marcar día de descanso */}
-          <View style={styles.actionButtons}>
-            {/* Botón principal para completar el hábito - cambia apariencia cuando está completado */}
-            <TouchableOpacity
-              style={[
-                styles.primaryButton,
-                habit.isCompleted && styles.completedButton
-              ]}
-              onPress={() => completeHabit(habit.id)}
-              disabled={habit.isCompleted}
-            >
-              <Text style={[
-                styles.buttonText,
-                habit.isCompleted && styles.completedButtonText
-              ]}>
-                {habit.isCompleted ? '✅ Completado hoy' : '🎯 Completar'}
-              </Text>
-            </TouchableOpacity>
-
-            {/* Botón de día de descanso - solo aparece para hábitos que lo permiten y no están completados */}
-            {habit.allow_rest_days && !habit.isCompleted && (
-              <TouchableOpacity
-                style={styles.restButton}
-                onPress={() => markRestDay(habit.id)}
-              >
-                <Text style={styles.restButtonText}>😴 Día de descanso</Text>
-              </TouchableOpacity>
             )}
           </View>
+          <Text style={styles.habitDescription}>
+            {habit.description}
+            {habit.isShared && habit.groups && (
+              <Text style={styles.groupInfo}> • Compartido en "{habit.groups.name}"</Text>
+            )}
+          </Text>
         </View>
+        
+        {/* Nueva sección que agrupa el badge de nivel y el botón de opciones */}
+        <View style={styles.habitActions}>
+          <View style={styles.levelBadge}>
+            <Text style={styles.levelText}>Nv. {habit.level}</Text>
+          </View>
+          
+          {/* Botón de opciones para editar y eliminar hábitos */}
+          <TouchableOpacity 
+            style={styles.optionsButton}
+            onPress={() => showHabitOptions(habit)}
+          >
+            <Text style={styles.optionsButtonText}>⋮</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+
+      {/* Estadísticas principales del hábito - racha, mejor racha, total */}
+      <View style={styles.statsContainer}>
+        <View style={styles.statItem}>
+          <Text style={styles.statNumber}>{habit.currentStreak}</Text>
+          <Text style={styles.statLabel}>Días seguidos</Text>
+        </View>
+
+        <View style={styles.statItem}>
+          <Text style={[
+            styles.statNumber, 
+            { color: habit.currentStreak > habit.bestStreak ? '#e74c3c' : '#7f8c8d' }
+          ]}>
+            {habit.bestStreak}
+          </Text>
+          <Text style={styles.statLabel}>Mejor racha</Text>
+        </View>
+
+        <View style={styles.statItem}>
+          <Text style={styles.statNumber}>{habit.totalCompletions}</Text>
+          <Text style={styles.statLabel}>Total</Text>
+        </View>
+      </View>
+
+      {/* Barra de progreso hacia el siguiente nivel con experiencia actual */}
+      <View style={styles.progressContainer}>
+        <Text style={styles.progressLabel}>
+          Progreso: {habit.experience % 100}/100 XP
+        </Text>
+        <View style={styles.progressBar}>
+          <View 
+            style={[
+              styles.progressFill, 
+              { width: `${(habit.experience % 100)}%` }
+            ]} 
+          />
+        </View>
+      </View>
+
+      {/* Información sobre días de descanso si el hábito los permite */}
+      {habit.allow_rest_days && (
+        <View style={styles.restDaysInfo}>
+          <Text style={styles.restDaysText}>
+            📅 Permite {habit.rest_days_per_week} días de descanso por semana
+          </Text>
+        </View>
+      )}
+
+      {/* Botones de acción para completar hábito y marcar día de descanso */}
+      <View style={styles.actionButtons}>
+        {/* Botón principal para completar el hábito - cambia apariencia cuando está completado */}
+        <TouchableOpacity
+          style={[
+            styles.primaryButton,
+            habit.isCompleted && styles.completedButton
+          ]}
+          onPress={() => completeHabit(habit.id)}
+          disabled={habit.isCompleted}
+        >
+          <Text style={[
+            styles.buttonText,
+            habit.isCompleted && styles.completedButtonText
+          ]}>
+            {habit.isCompleted ? '✅ Completado hoy' : '🎯 Completar'}
+          </Text>
+        </TouchableOpacity>
+
+        {/* Botón de día de descanso - solo aparece para hábitos que lo permiten y no están completados */}
+        {habit.allow_rest_days && !habit.isCompleted && (
+          <TouchableOpacity
+            style={styles.restButton}
+            onPress={() => markRestDay(habit.id)}
+          >
+            <Text style={styles.restButtonText}>😴 Día de descanso</Text>
+          </TouchableOpacity>
+        )}
+      </View>
+    </View>
+  ))}
+
+  {/* Sección de hábitos compartidos disponibles - NUEVA FUNCIONALIDAD */}
+  {availableSharedHabits.length > 0 && (
+    <View style={styles.availableHabitsSection}>
+      <Text style={styles.availableHabitsTitle}>🌟 Disponibles en Tus Grupos</Text>
+      <Text style={styles.availableHabitsSubtitle}>
+        Hábitos que puedes adoptar de tus grupos
+      </Text>
+      
+      {availableSharedHabits.map((habit) => (
+        <TouchableOpacity 
+          key={`${habit.group_id}-${habit.id}`} 
+          style={styles.availableHabitCard}
+          onPress={() => showSharedHabitDetails(habit)}
+          activeOpacity={0.7}
+        >
+          <View style={styles.availableHabitHeader}>
+            <View style={styles.availableHabitInfo}>
+              <Text style={styles.availableHabitName}>{habit.name}</Text>
+              <Text style={styles.availableHabitGroup}>
+                📍 {habit.groups.name}
+              </Text>
+            </View>
+            <View style={styles.adoptButton}>
+              <Text style={styles.adoptButtonText}>+ Adoptar</Text>
+            </View>
+          </View>
+          
+          {habit.description && (
+            <Text style={styles.availableHabitDescription}>
+              {habit.description}
+            </Text>
+          )}
+          
+          <Text style={styles.availableHabitCreator}>
+            Creado por: {habit.profiles?.full_name || habit.profiles?.username || 'Miembro del grupo'}
+          </Text>
+        </TouchableOpacity>
       ))}
-    </ScrollView>
+    </View>
+  )}
+
+  {/* Mensaje informativo cuando no hay hábitos disponibles pero el usuario tiene grupos */}
+  {availableSharedHabits.length === 0 && !loadingAvailableHabits && habits.length > 0 && (
+    <View style={styles.noAvailableHabitsContainer}>
+      <Text style={styles.noAvailableHabitsText}>
+        💡 Cuando los administradores de tus grupos creen hábitos compartidos, aparecerán aquí para que puedas adoptarlos
+      </Text>
+    </View>
+  )}
+
+  {/* Indicador de carga para hábitos disponibles */}
+  {loadingAvailableHabits && (
+    <View style={styles.loadingAvailableContainer}>
+      <Text style={styles.loadingAvailableText}>Buscando hábitos disponibles...</Text>
+    </View>
+  )}
+</ScrollView>
 
     {/* Botón flotante arrastrable para crear nuevos hábitos */}
 <DraggableFloatingButton onPress={openCreateHabitModal} />
@@ -1232,5 +1492,122 @@ optionsButtonText: {
   color: '#7f8c8d',
   fontWeight: 'bold',
   lineHeight: 18,
+},
+// Añadir estos estilos al objeto styles existente
+habitNameContainer: {
+  flexDirection: 'row',
+  alignItems: 'center',
+  marginBottom: 2,
+},
+sharedIndicator: {
+  marginLeft: 8,
+  backgroundColor: '#e8f5e8',
+  paddingHorizontal: 6,
+  paddingVertical: 2,
+  borderRadius: 8,
+},
+sharedIndicatorText: {
+  fontSize: 12,
+},
+groupInfo: {
+  color: '#27ae60',
+  fontStyle: 'italic',
+  fontSize: 12,
+},
+// Estilos para la sección de hábitos disponibles
+availableHabitsSection: {
+  marginTop: 30,
+  marginBottom: 20,
+},
+availableHabitsTitle: {
+  fontSize: 20,
+  fontWeight: 'bold',
+  color: '#f39c12',
+  marginBottom: 5,
+  textAlign: 'center',
+},
+availableHabitsSubtitle: {
+  fontSize: 14,
+  color: '#e67e22',
+  textAlign: 'center',
+  marginBottom: 15,
+},
+availableHabitCard: {
+  backgroundColor: '#fff3e0',
+  borderRadius: 12,
+  padding: 16,
+  marginBottom: 12,
+  borderWidth: 2,
+  borderColor: '#f39c12',
+  borderStyle: 'dashed',
+},
+availableHabitHeader: {
+  flexDirection: 'row',
+  justifyContent: 'space-between',
+  alignItems: 'center',
+  marginBottom: 8,
+},
+availableHabitInfo: {
+  flex: 1,
+},
+availableHabitName: {
+  fontSize: 16,
+  fontWeight: 'bold',
+  color: '#d68910',
+},
+availableHabitGroup: {
+  fontSize: 12,
+  color: '#b7950b',
+  marginTop: 2,
+},
+adoptButton: {
+  backgroundColor: '#f39c12',
+  paddingHorizontal: 12,
+  paddingVertical: 6,
+  borderRadius: 16,
+},
+adoptButtonText: {
+  color: '#ffffff',
+  fontSize: 12,
+  fontWeight: 'bold',
+},
+availableHabitDescription: {
+  fontSize: 14,
+  color: '#a6721b',
+  marginBottom: 8,
+  lineHeight: 18,
+},
+availableHabitCreator: {
+  fontSize: 11,
+  color: '#85651d',
+  fontStyle: 'italic',
+},
+// Estilos adicionales para elementos informativos
+noAvailableHabitsContainer: {
+  backgroundColor: '#f8f9fa',
+  padding: 20,
+  borderRadius: 12,
+  marginTop: 20,
+  marginBottom: 10,
+  borderWidth: 1,
+  borderColor: '#e9ecef',
+  borderStyle: 'dashed',
+},
+noAvailableHabitsText: {
+  fontSize: 14,
+  color: '#6c757d',
+  textAlign: 'center',
+  lineHeight: 20,
+  fontStyle: 'italic',
+},
+loadingAvailableContainer: {
+  padding: 20,
+  alignItems: 'center',
+  marginTop: 10,
+},
+loadingAvailableText: {
+  fontSize: 14,
+  color: '#6c757d',
+  fontStyle: 'italic',
 },
 });
