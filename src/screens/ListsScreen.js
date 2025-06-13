@@ -37,6 +37,37 @@ export default function ListsScreen() {
   const [showAddItemModal, setShowAddItemModal] = useState(false);
   const [newItemContent, setNewItemContent] = useState('');
 
+  // 🔧 NUEVA FUNCIÓN: Verificación de permisos del usuario en un grupo específico
+  // Esta función resuelve el problema de verificación de roles que tenías en el código original
+  const getUserRoleInGroup = async (groupId) => {
+    try {
+      console.log('🔍 Verificando rol del usuario en grupo:', groupId);
+      
+      const { data: membership, error } = await supabase
+        .from('group_members')
+        .select('role')
+        .eq('user_id', user.id)
+        .eq('group_id', groupId)
+        .single();
+
+      if (error) {
+        if (error.code === 'PGRST116') {
+          // El usuario no es miembro de este grupo
+          console.log('❌ Usuario no es miembro del grupo:', groupId);
+          return null;
+        }
+        console.error('Error verificando membresía:', error);
+        return null;
+      }
+
+      console.log('✅ Rol del usuario en grupo:', membership.role);
+      return membership.role;
+    } catch (error) {
+      console.error('Error inesperado verificando rol:', error);
+      return null;
+    }
+  };
+
   // Función para cargar todas las listas colaborativas de los grupos del usuario
   const loadCollaborativeLists = async () => {
     if (!user) {
@@ -109,7 +140,7 @@ export default function ListsScreen() {
     }
   };
 
-  // Función para cargar grupos donde el usuario puede crear listas (grupos donde es miembro)
+  // Función para cargar grupos donde el usuario puede crear listas
   const loadUserGroups = async () => {
     if (!user) return;
 
@@ -254,6 +285,182 @@ export default function ListsScreen() {
     }
   };
 
+  // 🔧 FUNCIÓN CORREGIDA: Mostrar opciones de lista con verificación de permisos apropiada
+  const showListOptions = async (list) => {
+    try {
+      console.log('🔍 Verificando permisos para lista:', list.name);
+
+      // Obtenemos el rol del usuario en este grupo específico
+      const userRole = await getUserRoleInGroup(list.group_id);
+      
+      if (!userRole) {
+        Alert.alert('Error', 'No tienes permisos para gestionar esta lista.');
+        return;
+      }
+
+      const isAdmin = userRole === 'admin';
+      const isCreator = list.created_by === user.id;
+      
+      console.log('🔍 Permisos verificados:', { userRole, isAdmin, isCreator });
+      
+      const options = [];
+      
+      // Opción para ver detalles (disponible para todos los miembros)
+      options.push({
+        text: '📋 Ver Detalles',
+        onPress: () => showListDetails(list)
+      });
+      
+      // Solo los administradores del grupo pueden eliminar listas
+      if (isAdmin) {
+        options.push({
+          text: '🗑️ Eliminar Lista',
+          style: 'destructive',
+          onPress: () => confirmDeleteList(list)
+        });
+      }
+      
+      options.push({
+        text: 'Cancelar',
+        style: 'cancel'
+      });
+
+      // Preparamos el subtítulo con información contextual
+      let subtitle = `Grupo: ${list.groups?.name || 'Grupo'}`;
+      if (isAdmin) {
+        subtitle += '\nEres administrador de este grupo';
+      } else {
+        subtitle += `\nCreada por: ${list.profiles?.full_name || list.profiles?.username || 'Usuario'}`;
+      }
+
+      Alert.alert(list.name, subtitle, options);
+
+    } catch (error) {
+      console.error('Error verificando permisos de lista:', error);
+      Alert.alert('Error', 'No se pudieron verificar los permisos. Intenta nuevamente.');
+    }
+  };
+
+  // Función para mostrar detalles completos de una lista
+  const showListDetails = (list) => {
+    const createdDate = new Date(list.created_at).toLocaleDateString('es-ES', {
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric'
+    });
+    
+    const completedItems = list.list_items?.filter(item => item.is_completed).length || 0;
+    const totalItems = list.list_items?.length || 0;
+    const completionPercentage = totalItems > 0 ? Math.round((completedItems / totalItems) * 100) : 0;
+    
+    const details = [
+      `📅 Creada: ${createdDate}`,
+      `👤 Por: ${list.profiles?.full_name || list.profiles?.username || 'Usuario'}`,
+      `🏠 Grupo: ${list.groups?.name || 'Grupo'}`,
+      `📊 Progreso: ${completedItems}/${totalItems} elementos (${completionPercentage}%)`,
+      list.description ? `📝 Descripción: ${list.description}` : null
+    ].filter(Boolean);
+    
+    Alert.alert(
+      `📋 ${list.name}`,
+      details.join('\n\n'),
+      [{ text: 'Cerrar', style: 'cancel' }]
+    );
+  };
+
+  // 🔧 FUNCIÓN MEJORADA: Confirmación de eliminación con más información
+  const confirmDeleteList = (list) => {
+    const itemsCount = list.list_items?.length || 0;
+    const completedCount = list.list_items?.filter(item => item.is_completed).length || 0;
+    
+    let warningMessage = `¿Estás seguro de que quieres eliminar "${list.name}"?`;
+    
+    if (itemsCount > 0) {
+      warningMessage += `\n\n⚠️ Esta lista contiene ${itemsCount} elemento${itemsCount > 1 ? 's' : ''} (${completedCount} completado${completedCount !== 1 ? 's' : ''}).`;
+    }
+    
+    warningMessage += '\n\n🚨 Esta acción no se puede deshacer y eliminará:';
+    warningMessage += '\n• Todos los elementos de la lista';
+    warningMessage += '\n• El historial de completaciones';
+    warningMessage += '\n• Las notificaciones relacionadas';
+    
+    Alert.alert(
+      'Eliminar Lista Colaborativa',
+      warningMessage,
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        { 
+          text: 'Eliminar Permanentemente',
+          style: 'destructive',
+          onPress: () => executeDeleteList(list)
+        }
+      ]
+    );
+  };
+
+  // 🔧 FUNCIÓN MEJORADA: Ejecución de eliminación con mejor manejo de errores
+  const executeDeleteList = async (list) => {
+    try {
+      console.log('🗑️ Iniciando eliminación de lista:', list.name);
+
+      // Mostramos indicador de progreso
+      Alert.alert('Eliminando...', 'Por favor espera mientras se elimina la lista.');
+
+      // Paso 1: Eliminar todos los elementos de la lista
+      const { error: itemsError } = await supabase
+        .from('list_items')
+        .delete()
+        .eq('list_id', list.id);
+
+      if (itemsError) {
+        console.error('Error eliminando elementos de lista:', itemsError);
+        Alert.alert('Error', 'No se pudieron eliminar los elementos de la lista. La lista no fue eliminada.');
+        return;
+      }
+
+      console.log('✅ Elementos de lista eliminados exitosamente');
+
+      // Paso 2: Eliminar la lista colaborativa
+      const { error: listError } = await supabase
+        .from('collaborative_lists')
+        .delete()
+        .eq('id', list.id);
+
+      if (listError) {
+        console.error('Error eliminando lista:', listError);
+        Alert.alert('Error', 'No se pudo eliminar la lista. Los elementos pueden haber sido afectados.');
+        return;
+      }
+
+      console.log('✅ Lista eliminada exitosamente');
+
+      // Paso 3: Actualizar estado local inmediatamente para UX responsiva
+      setCollaborativeLists(currentLists => 
+        currentLists.filter(l => l.id !== list.id)
+      );
+
+      // Paso 4: Si estábamos viendo esta lista específica, volver a la vista principal
+      if (selectedList && selectedList.id === list.id) {
+        setSelectedList(null);
+        setListItems([]);
+      }
+
+      // Paso 5: Mostrar confirmación de éxito
+      Alert.alert(
+        'Lista Eliminada',
+        `"${list.name}" ha sido eliminada permanentemente junto con todos sus elementos.`,
+        [{ text: 'Entendido', style: 'default' }]
+      );
+
+    } catch (error) {
+      console.error('💥 Error inesperado eliminando lista:', error);
+      Alert.alert(
+        'Error Inesperado', 
+        'Ocurrió un error durante la eliminación. Algunos datos pueden haber sido afectados. Por favor verifica el estado de tus listas.'
+      );
+    }
+  };
+
   // Función para marcar/desmarcar un elemento de lista como completado
   const toggleItemCompletion = async (item) => {
     try {
@@ -328,13 +535,86 @@ export default function ListsScreen() {
     setListItems([]);
   };
 
+  // 🔧 FUNCIÓN MEJORADA: Cargar elementos de lista con sincronización
+  const loadListItems = async (listId) => {
+    try {
+      const { data: items, error } = await supabase
+        .from('list_items')
+        .select('*')
+        .eq('list_id', listId)
+        .order('created_at', { ascending: false });
+
+      if (error) {
+        console.error('Error cargando elementos de lista:', error);
+        return;
+      }
+
+      setListItems(items || []);
+      
+      // También actualizar la lista en el estado de collaborative lists
+      setCollaborativeLists(currentLists => 
+        currentLists.map(list => 
+          list.id === listId 
+            ? { ...list, list_items: items || [] }
+            : list
+        )
+      );
+
+    } catch (error) {
+      console.error('Error inesperado cargando elementos:', error);
+    }
+  };
+
   // Efectos para cargar datos cuando el componente se monta
   useEffect(() => {
     if (user) {
       loadCollaborativeLists();
       loadUserGroups();
+      
+      // Configurar subscripción en tiempo real para listas colaborativas
+      const listsSubscription = supabase
+        .channel('collaborative_lists_changes')
+        .on(
+          'postgres_changes',
+          {
+            event: '*', // Escucha todos los eventos: INSERT, UPDATE, DELETE
+            schema: 'public',
+            table: 'collaborative_lists'
+          },
+          async (payload) => {
+            console.log('🔄 Cambio detectado en listas colaborativas:', payload);
+            
+            // Recargar las listas cuando hay cambios
+            await loadCollaborativeLists();
+          }
+        )
+        .on(
+          'postgres_changes',
+          {
+            event: '*',
+            schema: 'public',
+            table: 'list_items'
+          },
+          async (payload) => {
+            console.log('🔄 Cambio detectado en elementos de lista:', payload);
+            
+            // Si estamos viendo una lista específica, actualizar solo esa lista
+            if (selectedList) {
+              await loadListItems(selectedList.id);
+            } else {
+              // Si estamos en la vista general, recargar todas las listas
+              await loadCollaborativeLists();
+            }
+          }
+        )
+        .subscribe();
+
+      // Función de limpieza
+      return () => {
+        supabase.removeChannel(listsSubscription);
+      };
     }
-  }, [user]);
+  }, [user, selectedList]);
 
   // Función para manejar pull-to-refresh
   const onRefresh = () => {
@@ -493,6 +773,7 @@ export default function ListsScreen() {
               key={list.id}
               style={styles.listCard}
               onPress={() => openList(list)}
+              onLongPress={() => showListOptions(list)}
               activeOpacity={0.7}
             >
               <View style={styles.listCardHeader}>
@@ -573,26 +854,51 @@ export default function ListsScreen() {
 
             <View style={styles.formField}>
               <Text style={styles.fieldLabel}>Seleccionar Grupo *</Text>
-              {userGroups.map(group => (
-                <TouchableOpacity
-                  key={group.id}
-                  style={[
-                    styles.groupOption,
-                    selectedGroupId === group.id && styles.selectedGroupOption
-                  ]}
-                  onPress={() => setSelectedGroupId(group.id)}
-                >
-                  <Text style={[
-                    styles.groupOptionText,
-                    selectedGroupId === group.id && styles.selectedGroupOptionText
-                  ]}>
-                    {group.name}
+              {userGroups.length === 0 ? (
+                <View style={styles.noGroupsContainer}>
+                  <Text style={styles.noGroupsText}>
+                    No perteneces a ningún grupo aún. Únete a un grupo o crea uno para poder crear listas colaborativas.
                   </Text>
-                  {selectedGroupId === group.id && (
-                    <Text style={styles.selectedIndicator}>✓</Text>
-                  )}
-                </TouchableOpacity>
-              ))}
+                </View>
+              ) : (
+                userGroups.map(group => (
+                  <TouchableOpacity
+                    key={group.id}
+                    style={[
+                      styles.groupOption,
+                      selectedGroupId === group.id && styles.selectedGroupOption
+                    ]}
+                    onPress={() => setSelectedGroupId(group.id)}
+                  >
+                    <Text style={[
+                      styles.groupOptionText,
+                      selectedGroupId === group.id && styles.selectedGroupOptionText
+                    ]}>
+                      {group.name}
+                    </Text>
+                    {selectedGroupId === group.id && (
+                      <Text style={styles.selectedIndicator}>✓</Text>
+                    )}
+                  </TouchableOpacity>
+                ))
+              )}
+            </View>
+
+            {/* Información sobre listas colaborativas */}
+            <View style={styles.infoContainer}>
+              <Text style={styles.infoTitle}>💡 Sobre las Listas Colaborativas</Text>
+              <Text style={styles.infoText}>
+                • Todos los miembros del grupo pueden ver y añadir elementos
+              </Text>
+              <Text style={styles.infoText}>
+                • Los cambios se sincronizan en tiempo real
+              </Text>
+              <Text style={styles.infoText}>
+                • Solo los administradores pueden eliminar listas
+              </Text>
+              <Text style={styles.infoText}>
+                • Perfecto para compras, tareas de proyecto y planificación grupal
+              </Text>
             </View>
           </ScrollView>
         </KeyboardAvoidingView>
@@ -601,6 +907,7 @@ export default function ListsScreen() {
   );
 }
 
+// 🎨 ESTILOS COMPLETOS Y ORGANIZADOS
 const styles = StyleSheet.create({
   container: {
     flex: 1,
@@ -637,6 +944,8 @@ const styles = StyleSheet.create({
     flex: 1,
     paddingHorizontal: 20,
   },
+
+  // 🎯 ESTILOS PARA ESTADO VACÍO
   emptyState: {
     backgroundColor: '#ffffff',
     borderRadius: 16,
@@ -666,6 +975,8 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     lineHeight: 20,
   },
+
+  // 🎯 ESTILOS PARA CARDS DE LISTA
   listCard: {
     backgroundColor: '#ffffff',
     borderRadius: 12,
@@ -729,7 +1040,8 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: 'bold',
   },
-  // Estilos para vista de lista específica
+
+  // 🎯 ESTILOS PARA VISTA DE LISTA ESPECÍFICA
   listHeader: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -773,6 +1085,8 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: 'bold',
   },
+
+  // 🎯 ESTILOS PARA ELEMENTOS DE LISTA
   itemsContainer: {
     flex: 1,
     padding: 20,
@@ -841,7 +1155,8 @@ const styles = StyleSheet.create({
     marginTop: 4,
     fontStyle: 'italic',
   },
-  // Estilos para modales
+
+  // 🎯 ESTILOS PARA MODALES
   modalContainer: {
     flex: 1,
     backgroundColor: '#f8f9fa',
@@ -875,6 +1190,8 @@ const styles = StyleSheet.create({
     flex: 1,
     padding: 20,
   },
+
+  // 🎯 ESTILOS PARA FORMULARIOS
   formField: {
     marginBottom: 20,
   },
@@ -908,6 +1225,22 @@ const styles = StyleSheet.create({
     height: 100,
     textAlignVertical: 'top',
   },
+
+  // 🎯 ESTILOS PARA SELECCIÓN DE GRUPOS
+  noGroupsContainer: {
+    backgroundColor: '#fff3e0',
+    padding: 15,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#f39c12',
+    borderStyle: 'dashed',
+  },
+  noGroupsText: {
+    fontSize: 14,
+    color: '#b7950b',
+    textAlign: 'center',
+    lineHeight: 18,
+  },
   groupOption: {
     backgroundColor: '#f8f9fa',
     padding: 15,
@@ -935,5 +1268,25 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#f39c12',
     fontWeight: 'bold',
+  },
+
+  // 🎯 ESTILOS PARA SECCIÓN DE INFORMACIÓN
+  infoContainer: {
+    backgroundColor: '#e8f4fd',
+    borderRadius: 12,
+    padding: 15,
+    marginTop: 20,
+  },
+  infoTitle: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: '#2980b9',
+    marginBottom: 10,
+  },
+  infoText: {
+    fontSize: 12,
+    color: '#34495e',
+    lineHeight: 16,
+    marginBottom: 4,
   },
 });
