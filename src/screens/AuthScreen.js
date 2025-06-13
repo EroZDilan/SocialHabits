@@ -106,12 +106,71 @@ const handleSignUp = async () => {
     );
 
   } catch (error) {
-    console.error('💥 Error inesperado durante el registro:', {
-      message: error.message,
-      stack: error.stack,
-      error: error
+    // 📍 UBICACIÓN: Dentro de tu función handleSignUp existente, reemplaza el manejo de errores
+
+if (error) {
+  console.error('❌ Error específico de Supabase Auth:', {
+    message: error.message,
+    status: error.status,
+    statusCode: error.statusCode,
+    details: error
+  });
+  
+  // 🧪 NUEVO: Si es un error de base de datos, ejecutamos diagnóstico automático
+  if (error.message.includes('Database error')) {
+    console.log('🚨 ERROR DE BASE DE DATOS DETECTADO - EJECUTANDO DIAGNÓSTICO AUTOMÁTICO');
+    
+    // Ejecutamos el diagnóstico completo en segundo plano
+    runCompleteDiagnosis().then(diagnosis => {
+      console.log('🩺 DIAGNÓSTICO AUTOMÁTICO COMPLETADO');
+      
+      // Mostramos un mensaje específico basado en el diagnóstico
+      let userMessage = 'Se detectó un problema específico en la base de datos. ';
+      let technicalMessage = '';
+      
+      switch (diagnosis.primaryIssue) {
+        case 'rls_policies':
+          userMessage += 'Las políticas de seguridad necesitan ajustes.';
+          technicalMessage = 'RLS está bloqueando INSERT - revisar políticas';
+          break;
+        case 'database_triggers':
+          userMessage += 'Los procesos automáticos de la base de datos necesitan configuración.';
+          technicalMessage = 'Triggers no funcionan - implementar creación manual de perfiles';
+          break;
+        case 'data_constraints':
+          userMessage += 'Ya existe un usuario con esa información.';
+          technicalMessage = 'Constraint único violado - verificar duplicados';
+          break;
+        default:
+          userMessage += 'Se requiere investigación técnica adicional.';
+          technicalMessage = diagnosis.summary;
+      }
+      
+      console.log('💡 MENSAJE PARA DESARROLLADOR:', technicalMessage);
+      
+      Alert.alert(
+        'Error de Registro Identificado',
+        userMessage + '\n\nEl problema específico ha sido identificado en los logs para resolución.',
+        [{ text: 'Entendido', style: 'default' }]
+      );
+    }).catch(diagError => {
+      console.error('❌ Error ejecutando diagnóstico:', diagError);
+      Alert.alert('Error de Registro', 'Problema con la base de datos. Contacta soporte técnico.');
     });
-    Alert.alert('Error Inesperado', `Ocurrió un error inesperado: ${error.message}. Por favor contacta soporte si el problema persiste.`);
+    
+    return; // Salimos temprano mientras el diagnóstico se ejecuta
+  }
+  
+  // Manejo de otros tipos de errores (tu código existente)
+  if (error.message.includes('rate limit')) {
+    Alert.alert('Error', 'Demasiados intentos de registro. Espera unos minutos e intenta nuevamente.');
+  } else if (error.message.includes('already registered')) {
+    Alert.alert('Error', 'Este email ya está registrado. ¿Quizás quieres iniciar sesión en su lugar?');
+  } else {
+    Alert.alert('Error de Registro', error.message);
+  }
+  return;
+}
   } finally {
     setLoading(false);
   }
@@ -156,6 +215,7 @@ const handleSignUp = async () => {
       setLoading(false);
     }
   };
+
 
   // Función que alterna entre los modos de registro e inicio de sesión
   // También limpia los campos específicos del registro cuando cambiamos a inicio de sesión
@@ -246,6 +306,7 @@ const handleSignUp = async () => {
               {loading ? 'Procesando...' : (isSignUp ? 'Registrarse' : 'Iniciar Sesión')}
             </Text>
           </TouchableOpacity>
+
 
           {/* Botón para alternar entre modos */}
           <TouchableOpacity style={styles.secondaryButton} onPress={toggleMode}>

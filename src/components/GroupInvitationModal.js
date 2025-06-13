@@ -36,39 +36,41 @@ export default function GroupInvitationModal({ visible, onClose, group }) {
 
   // Función para cargar invitaciones pendientes del grupo actual
   // Esta función permite a los administradores ver el estado de todas las invitaciones
-  const loadPendingInvitations = async () => {
-    if (!group || !user) return;
+// Función modificada para cargar invitaciones pendientes
+// Función corregida para cargar invitaciones pendientes sin acceder a tabla users
+// Función ULTRA-SIMPLIFICADA para cargar invitaciones del grupo
+const loadPendingInvitations = async () => {
+  if (!group || !user) return;
 
-    setLoadingInvitations(true);
-    try {
-      console.log('🔍 Cargando invitaciones pendientes para grupo:', group.name);
+  setLoadingInvitations(true);
+  try {
+    console.log('🔍 Cargando invitaciones pendientes para grupo:', group.name);
 
-      const { data: invitations, error } = await supabase
-        .from('group_invitations')
-        .select(`
-          *,
-          groups (name),
-          profiles:invited_by (username, full_name)
-        `)
-        .eq('group_id', group.id)
-        .eq('status', 'pending')
-        .gt('expires_at', new Date().toISOString())
-        .order('created_at', { ascending: false });
+    // 🔧 CONSULTA MÍNIMA - Solo campos básicos
+    const { data: invitations, error } = await supabase
+      .from('group_invitations')
+      .select('*')
+      .eq('group_id', group.id)
+      .eq('status', 'pending')
+      .gt('expires_at', new Date().toISOString())
+      .order('created_at', { ascending: false });
 
-      if (error) {
-        console.error('Error al cargar invitaciones:', error);
-        return;
-      }
-
-      console.log(`📧 Encontradas ${invitations?.length || 0} invitaciones pendientes`);
-      setPendingInvitations(invitations || []);
-
-    } catch (error) {
-      console.error('Error inesperado al cargar invitaciones:', error);
-    } finally {
-      setLoadingInvitations(false);
+    if (error) {
+      console.error('Error al cargar invitaciones:', error);
+      return;
     }
-  };
+
+    console.log(`📧 Encontradas ${invitations?.length || 0} invitaciones pendientes`);
+    
+    // 🔧 PROCESAMIENTO MÍNIMO - Sin consultas adicionales
+    setPendingInvitations(invitations || []);
+
+  } catch (error) {
+    console.error('Error inesperado al cargar invitaciones:', error);
+  } finally {
+    setLoadingInvitations(false);
+  }
+};
 
   // Función para validar formato de email usando expresión regular
   const validateEmail = (email) => {
@@ -78,173 +80,163 @@ export default function GroupInvitationModal({ visible, onClose, group }) {
 
   // Función para enviar invitación por email
   // Esta función crea una invitación específica para un usuario identificado por su email
-  const sendEmailInvitation = async () => {
-    console.log('📧 Iniciando proceso de invitación por email...');
+// Función completa para enviar invitación por email - SIN acceso a tabla users
+// Función sendEmailInvitation ULTRA-SIMPLIFICADA
+const sendEmailInvitation = async () => {
+  console.log('📧 Iniciando proceso de invitación por email...');
+  
+  if (!inviteeEmail.trim()) {
+    setEmailError('El email es requerido');
+    return;
+  }
+
+  if (!validateEmail(inviteeEmail.trim())) {
+    setEmailError('Por favor ingresa un email válido');
+    return;
+  }
+
+  setEmailError('');
+  setLoading(true);
+
+  try {
+    const emailToInvite = inviteeEmail.trim().toLowerCase();
+    console.log('📧 Enviando invitación a:', emailToInvite);
+
+    // 🔧 SIMPLIFICADO: Solo crear la invitación sin verificaciones complicadas
+    const invitationData = {
+      group_id: group.id,
+      invited_by: user.id,
+      invited_email: emailToInvite,
+      invitation_message: invitationMessage.trim() || null,
+      expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+      status: 'pending'
+    };
+
+    console.log('📧 Datos de invitación a insertar:', invitationData);
+
+    const { data: newInvitation, error: createError } = await supabase
+      .from('group_invitations')
+      .insert(invitationData)
+      .select()
+      .single();
+
+    if (createError) {
+      console.error('Error al crear invitación:', createError);
+      Alert.alert('Error al Enviar Invitación', 'No se pudo crear la invitación. Intenta nuevamente.');
+      return;
+    }
+
+    console.log('✅ Invitación creada exitosamente:', newInvitation);
+
+    // Limpiamos los campos del formulario
+    setInviteeEmail('');
+    setInvitationMessage('');
     
-    // Validación de campos requeridos
-    if (!inviteeEmail.trim()) {
-      setEmailError('El email es requerido');
-      return;
-    }
+    // Recargamos las invitaciones pendientes
+    await loadPendingInvitations();
 
-    if (!validateEmail(inviteeEmail.trim())) {
-      setEmailError('Por favor ingresa un email válido');
-      return;
-    }
+    Alert.alert(
+      'Invitación Creada',
+      `Se ha creado una invitación para ${emailToInvite}. Estará disponible cuando accedan a la aplicación.`,
+      [{ text: 'Perfecto', style: 'default' }]
+    );
 
-    setEmailError('');
-    setLoading(true);
+  } catch (error) {
+    console.error('Error inesperado al enviar invitación:', error);
+    Alert.alert('Error Inesperado', 'Ocurrió un error inesperado. Intenta nuevamente.');
+  } finally {
+    setLoading(false);
+  }
+};
+  // Función para generar código de invitación compartible
+  // Esta función crea un código único que se puede compartir por cualquier medio
+  const generateInviteCode = async () => {
+  console.log('🔐 Generando código de invitación...');
+  setLoading(true);
 
-    try {
-      const emailToInvite = inviteeEmail.trim().toLowerCase();
-      console.log('📧 Enviando invitación a:', emailToInvite);
+  try {
+    // OPCIÓN 1: Usar la función de base de datos (después de crearla)
+    console.log('🔐 Intentando generar código con función de BD...');
+    const { data: codeResult, error: codeError } = await supabase
+      .rpc('generate_invite_code');
 
-      // Verificamos si ya existe una invitación pendiente para este email
-      const { data: existingInvitation, error: checkError } = await supabase
+    let inviteCode;
+
+    if (codeError) {
+      console.log('⚠️ Función de BD no disponible, generando código localmente...');
+      // OPCIÓN 2: Fallback - generar código en el cliente
+      inviteCode = generateCodeLocally();
+      
+      // Verificar que el código no exista (verificación adicional)
+      const { data: existingCode, error: checkError } = await supabase
         .from('group_invitations')
-        .select('id, status, expires_at')
-        .eq('group_id', group.id)
-        .eq('invited_email', emailToInvite)
+        .select('id')
+        .eq('invite_code', inviteCode)
         .eq('status', 'pending')
         .gt('expires_at', new Date().toISOString())
         .single();
 
       if (checkError && checkError.code !== 'PGRST116') {
-        // PGRST116 significa "no rows found", que es lo que esperamos si no hay invitación existente
-        console.error('Error al verificar invitaciones existentes:', checkError);
-        Alert.alert('Error', 'No se pudo verificar invitaciones existentes.');
-        return;
+        throw new Error('Error verificando unicidad del código');
       }
 
-      if (existingInvitation) {
-        Alert.alert(
-          'Invitación Ya Existe',
-          `Ya hay una invitación pendiente para ${emailToInvite}. Espera a que responda o revoca la invitación existente.`
-        );
-        return;
+      if (existingCode) {
+        // Si existe, intentamos una vez más
+        inviteCode = generateCodeLocally();
       }
+    } else {
+      inviteCode = codeResult;
+    }
 
-      // Verificamos si el usuario ya es miembro del grupo
-      const { data: existingMember, error: memberError } = await supabase
-        .from('profiles')
-        .select(`
-          id,
-          group_members!inner (
-            group_id
-          )
-        `)
-        .eq('email', emailToInvite)
-        .eq('group_members.group_id', group.id)
-        .single();
+    console.log('🔐 Código generado:', inviteCode);
 
-      if (memberError && memberError.code !== 'PGRST116') {
-        console.error('Error al verificar membresía existente:', memberError);
-      }
+    // Creamos la invitación con el código generado
+    const invitationData = {
+      group_id: group.id,
+      invited_by: user.id,
+      invite_code: inviteCode,
+      invitation_message: invitationMessage.trim() || null,
+      expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString() // 7 días
+    };
 
-      if (existingMember) {
-        Alert.alert(
-          'Usuario Ya es Miembro',
-          `El usuario con email ${emailToInvite} ya es miembro de este grupo.`
-        );
-        return;
-      }
+    const { data: newInvitation, error: createError } = await supabase
+      .from('group_invitations')
+      .insert(invitationData)
+      .select()
+      .single();
 
-      // Creamos la nueva invitación
-      const invitationData = {
-        group_id: group.id,
-        invited_by: user.id,
-        invited_email: emailToInvite,
-        invitation_message: invitationMessage.trim() || null,
-        expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString() // 7 días
-      };
-
-      const { data: newInvitation, error: createError } = await supabase
-        .from('group_invitations')
-        .insert(invitationData)
-        .select()
-        .single();
-
-      if (createError) {
-        console.error('Error al crear invitación:', createError);
-        Alert.alert('Error', 'No se pudo enviar la invitación. Intenta nuevamente.');
-        return;
-      }
-
-      console.log('✅ Invitación creada exitosamente:', newInvitation);
-
-      // Limpiamos el formulario y actualizamos la lista
-      setInviteeEmail('');
-      setInvitationMessage('');
-      await loadPendingInvitations();
-
+    if (createError) {
+      console.error('Error al crear invitación por código:', createError);
       Alert.alert(
-        'Invitación Enviada',
-        `Se ha enviado una invitación a ${emailToInvite}. Recibirán un email con instrucciones para unirse al grupo.`,
-        [{ text: 'Perfecto', style: 'default' }]
+        'Error al Crear Invitación', 
+        `No se pudo crear la invitación: ${createError.message}`
       );
-
-    } catch (error) {
-      console.error('Error inesperado al enviar invitación:', error);
-      Alert.alert('Error Inesperado', 'Ocurrió un error inesperado. Intenta nuevamente.');
-    } finally {
-      setLoading(false);
+      return;
     }
-  };
 
-  // Función para generar código de invitación compartible
-  // Esta función crea un código único que se puede compartir por cualquier medio
-  const generateInviteCode = async () => {
-    console.log('🔐 Generando código de invitación...');
-    setLoading(true);
+    console.log('✅ Invitación por código creada exitosamente:', newInvitation);
 
-    try {
-      // Llamamos a la función de base de datos que genera códigos únicos
-      const { data: codeResult, error: codeError } = await supabase
-        .rpc('generate_invite_code');
+    setGeneratedCode(inviteCode);
+    setInvitationMessage('');
+    await loadPendingInvitations();
 
-      if (codeError) {
-        console.error('Error al generar código:', codeError);
-        Alert.alert('Error', 'No se pudo generar el código de invitación.');
-        return;
-      }
+  } catch (error) {
+    console.error('Error inesperado al generar código:', error);
+    Alert.alert('Error Inesperado', `Ocurrió un error: ${error.message}`);
+  } finally {
+    setLoading(false);
+  }
+};
 
-      const inviteCode = codeResult;
-      console.log('🔐 Código generado:', inviteCode);
-
-      // Creamos la invitación con el código generado
-      const invitationData = {
-        group_id: group.id,
-        invited_by: user.id,
-        invite_code: inviteCode,
-        invitation_message: invitationMessage.trim() || null,
-        expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString() // 7 días
-      };
-
-      const { data: newInvitation, error: createError } = await supabase
-        .from('group_invitations')
-        .insert(invitationData)
-        .select()
-        .single();
-
-      if (createError) {
-        console.error('Error al crear invitación por código:', createError);
-        Alert.alert('Error', 'No se pudo crear la invitación por código.');
-        return;
-      }
-
-      console.log('✅ Invitación por código creada exitosamente:', newInvitation);
-
-      setGeneratedCode(inviteCode);
-      setInvitationMessage('');
-      await loadPendingInvitations();
-
-    } catch (error) {
-      console.error('Error inesperado al generar código:', error);
-      Alert.alert('Error Inesperado', 'Ocurrió un error inesperado. Intenta nuevamente.');
-    } finally {
-      setLoading(false);
-    }
-  };
+// Función auxiliar para generar códigos localmente (fallback)
+const generateCodeLocally = () => {
+  const characters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+  let result = '';
+  for (let i = 0; i < 8; i++) {
+    result += characters.charAt(Math.floor(Math.random() * characters.length));
+  }
+  return result;
+};
 
   // Función para compartir código de invitación usando la API nativa de Share
   const shareInviteCode = async () => {

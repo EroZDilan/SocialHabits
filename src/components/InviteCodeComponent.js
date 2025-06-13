@@ -26,92 +26,123 @@ export default function InviteCodeComponent({ onCodeAccepted }) {
   };
 
   // Función para validar y procesar un código de invitación
-  const processInviteCode = async () => {
-    const formattedCode = formatInviteCode(inviteCode.trim());
-    
-    // Validación básica del formato del código
-    if (!formattedCode) {
-      setCodeError('Por favor ingresa un código de invitación');
+// Función processInviteCode corregida para manejar datos null
+// Función processInviteCode con manejo robusto de grupos no encontrados
+const processInviteCode = async () => {
+  const formattedCode = formatInviteCode(inviteCode.trim());
+  
+  if (!formattedCode) {
+    setCodeError('Por favor ingresa un código de invitación');
+    return;
+  }
+
+  if (formattedCode.length !== 8) {
+    setCodeError('Los códigos de invitación tienen 8 caracteres');
+    return;
+  }
+
+  setCodeError('');
+  setLoading(true);
+
+  try {
+    console.log('🔐 Procesando código de invitación:', formattedCode);
+
+    // 🔧 CONSULTA SIMPLIFICADA: Sin JOINs que puedan fallar
+    const { data: invitation, error: invitationError } = await supabase
+      .from('group_invitations')
+      .select('*')
+      .eq('invite_code', formattedCode)
+      .eq('status', 'pending')
+      .gt('expires_at', new Date().toISOString())
+      .single();
+
+    if (invitationError) {
+      if (invitationError.code === 'PGRST116') {
+        setCodeError('Código inválido, expirado o ya utilizado');
+        return;
+      }
+      console.error('Error al buscar invitación:', invitationError);
+      Alert.alert('Error', 'No se pudo verificar el código. Intenta nuevamente.');
       return;
     }
 
-    if (formattedCode.length !== 8) {
-      setCodeError('Los códigos de invitación tienen 8 caracteres');
-      return;
-    }
+    console.log('🔐 Invitación encontrada, verificando grupo...');
 
-    setCodeError('');
-    setLoading(true);
+    // 🔧 CARGAMOS INFORMACIÓN DEL GRUPO CON MANEJO DE ERRORES ROBUSTO
+    const { data: groupData, error: groupError } = await supabase
+      .from('groups')
+      .select('id, name, description')
+      .eq('id', invitation.group_id)
+      .single();
 
-    try {
-      console.log('🔐 Procesando código de invitación:', formattedCode);
-
-      // Buscamos la invitación por código
-      const { data: invitation, error: invitationError } = await supabase
-        .from('group_invitations')
-        .select(`
-          *,
-          groups (
-            id,
-            name,
-            description
-          ),
-          profiles:invited_by (
-            username,
-            full_name
-          )
-        `)
-        .eq('invite_code', formattedCode)
-        .eq('status', 'pending')
-        .gt('expires_at', new Date().toISOString())
-        .single();
-
-      if (invitationError) {
-        if (invitationError.code === 'PGRST116') {
-          setCodeError('Código inválido, expirado o ya utilizado');
-          return;
-        }
-        console.error('Error al buscar invitación:', invitationError);
-        Alert.alert('Error', 'No se pudo verificar el código. Intenta nuevamente.');
-        return;
-      }
-
-      console.log('🔐 Invitación encontrada para grupo:', invitation.groups.name);
-
-      // Verificamos si el usuario ya es miembro del grupo
-      const { data: existingMembership, error: memberError } = await supabase
-        .from('group_members')
-        .select('id')
-        .eq('user_id', user.id)
-        .eq('group_id', invitation.group_id)
-        .single();
-
-      if (memberError && memberError.code !== 'PGRST116') {
-        console.error('Error al verificar membresía:', memberError);
-        Alert.alert('Error', 'No se pudo verificar tu membresía actual.');
-        return;
-      }
-
-      if (existingMembership) {
+    // 🔧 MANEJO ESPECÍFICO DE GRUPO NO ENCONTRADO
+    if (groupError) {
+      if (groupError.code === 'PGRST116') {
+        // El grupo no existe o fue eliminado
+        console.error('Grupo no encontrado para invitación:', invitation.group_id);
+        
+        // Marcamos la invitación como inválida
+        await supabase
+          .from('group_invitations')
+          .update({ status: 'expired' })
+          .eq('id', invitation.id);
+        
         Alert.alert(
-          'Ya Eres Miembro',
-          `Ya eres miembro del grupo "${invitation.groups.name}".`
+          'Invitación Inválida',
+          'Este código pertenece a un grupo que ya no existe. El código ha sido desactivado.',
+          [{ text: 'Entendido', style: 'default' }]
         );
+        
         setInviteCode('');
         return;
       }
-
-      // Mostramos los detalles del grupo y pedimos confirmación
-      showInvitationDetails(invitation);
-
-    } catch (error) {
-      console.error('Error inesperado al procesar código:', error);
-      Alert.alert('Error Inesperado', 'Ocurrió un error inesperado. Intenta nuevamente.');
-    } finally {
-      setLoading(false);
+      
+      console.error('Error al cargar información del grupo:', groupError);
+      Alert.alert('Error', 'No se pudo cargar información del grupo. Intenta nuevamente.');
+      return;
     }
-  };
 
+    // 🔧 SI LLEGAMOS AQUÍ, TODO ESTÁ BIEN
+    const invitationWithGroup = {
+      ...invitation,
+      groups: groupData
+    };
+
+    console.log('🔐 Invitación encontrada para grupo:', groupData.name);
+
+    // Verificamos si el usuario ya es miembro del grupo
+    const { data: existingMembership, error: memberError } = await supabase
+      .from('group_members')
+      .select('id')
+      .eq('user_id', user.id)
+      .eq('group_id', invitation.group_id)
+      .single();
+
+    if (memberError && memberError.code !== 'PGRST116') {
+      console.error('Error al verificar membresía:', memberError);
+      Alert.alert('Error', 'No se pudo verificar tu membresía actual.');
+      return;
+    }
+
+    if (existingMembership) {
+      Alert.alert(
+        'Ya Eres Miembro',
+        `Ya eres miembro del grupo "${groupData.name}".`
+      );
+      setInviteCode('');
+      return;
+    }
+
+    // Mostramos los detalles del grupo y pedimos confirmación
+    showInvitationDetails(invitationWithGroup);
+
+  } catch (error) {
+    console.error('Error inesperado al procesar código:', error);
+    Alert.alert('Error Inesperado', 'Ocurrió un error inesperado. Intenta nuevamente.');
+  } finally {
+    setLoading(false);
+  }
+};
   // Función para mostrar detalles de la invitación y pedir confirmación
   const showInvitationDetails = (invitation) => {
     const groupName = invitation.groups.name;

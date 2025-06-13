@@ -19,55 +19,53 @@ export default function PendingInvitationsComponent({ onInvitationResponse }) {
   const [loading, setLoading] = useState(true);
   const [respondingToInvitation, setRespondingToInvitation] = useState(null);
 
-  // Función para cargar invitaciones pendientes dirigidas al usuario actual
-  // Función modificada para cargar invitaciones pendientes
+
+// Función ULTRA-SIMPLIFICADA para cargar invitaciones pendientes
 const loadPendingInvitations = async () => {
   if (!user) return;
 
-  setLoadingInvitations(true);
+  setLoading(true);
   try {
     console.log('📨 Cargando invitaciones pendientes para usuario:', user.email);
 
-    // Cargamos TODAS las invitaciones por email pendientes, no filtradas por políticas
-    const { data: emailInvitations, error: emailError } = await supabase
+    // 🔧 CONSULTA MÍNIMA - Solo campos básicos, sin relaciones
+    const { data: invitations, error } = await supabase
       .from('group_invitations')
-      .select(`
-        *,
-        groups (
-          id,
-          name,
-          description
-        ),
-        profiles:invited_by (
-          username,
-          full_name
-        )
-      `)
-      .not('invited_email', 'is', null)  // Solo invitaciones por email
+      .select('*')
+      .eq('invited_email', user.email.toLowerCase())
       .eq('status', 'pending')
       .gt('expires_at', new Date().toISOString())
       .order('created_at', { ascending: false });
 
-    if (emailError) {
-      console.error('Error al cargar invitaciones por email:', emailError);
+    if (error) {
+      console.error('Error al cargar invitaciones:', error);
       return;
     }
 
-    // Filtramos en el cliente las invitaciones dirigidas a este usuario
-    const userInvitations = (emailInvitations || []).filter(
-      invitation => invitation.invited_email.toLowerCase() === user.email.toLowerCase()
-    );
+    console.log(`📨 Encontradas ${invitations?.length || 0} invitaciones para este usuario`);
+    
+    // 🔧 PROCESAMIENTO MÍNIMO - Solo añadimos nombres de grupo básicos
+    const processedInvitations = (invitations || []).map(invitation => ({
+      ...invitation,
+      groups: { 
+        id: invitation.group_id, 
+        name: 'Grupo Pendiente',
+        description: 'Información se cargará al aceptar'
+      },
+      profiles: {
+        username: 'usuario',
+        full_name: 'Miembro del grupo'
+      }
+    }));
 
-    console.log(`📨 Encontradas ${userInvitations.length} invitaciones para este usuario`);
-    setPendingInvitations(userInvitations);
+    setPendingInvitations(processedInvitations);
 
   } catch (error) {
     console.error('Error inesperado al cargar invitaciones:', error);
   } finally {
-    setLoadingInvitations(false);
+    setLoading(false);
   }
 };
-
   // Función para responder a una invitación (aceptar o rechazar)
   const respondToInvitation = async (invitation, response) => {
     const actionText = response === 'accepted' ? 'aceptar' : 'rechazar';

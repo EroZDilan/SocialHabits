@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useState } from 'react';
+import React, { createContext, useContext, useEffect, useState, useRef } from 'react';
 import { supabase } from '../config/supabase';
 import NotificationService from '../services/NotificationService';
 
@@ -27,6 +27,8 @@ export const AuthProvider = ({ children }) => {
 
   // Estado para el conteo de notificaciones no leídas
   const [unreadNotificationsCount, setUnreadNotificationsCount] = useState(0);
+
+   const notificationsSubscriptionRef = useRef(null);
 
   // Función para obtener el perfil completo del usuario desde nuestra base de datos
   const fetchUserProfile = async (userId) => {
@@ -80,50 +82,57 @@ export const AuthProvider = ({ children }) => {
     console.log('Cambio de estado de autenticación:', event, session?.user?.email);
     
     if (session?.user) {
-      // Si hay una sesión válida, establecemos el usuario y obtenemos su perfil
       setUser(session.user);
       
-      // Intentamos obtener el perfil completo del usuario
       const userProfile = await fetchUserProfile(session.user.id);
       setProfile(userProfile);
       
       if (!userProfile) {
-        console.warn('No se pudo obtener el perfil del usuario. Esto podría indicar un problema de sincronización.');
+        console.warn('No se pudo obtener el perfil del usuario.');
       }
 
-      // Inicializamos el servicio de notificaciones
       console.log('🔔 AuthContext: Inicializando servicio de notificaciones...');
       await NotificationService.initialize(session.user.id);
-
-      // Cargamos el conteo de notificaciones no leídas
       await loadUnreadNotificationsCount(session.user.id);
 
-      // Configuramos suscripción en tiempo real para notificaciones
+      // 🔧 IMPORTANTE: Solo configuramos suscripción después de limpiar
       setupNotificationsSubscription(session.user.id);
 
     } else {
-      // Si no hay sesión, limpiamos todos los estados relacionados con el usuario
+      // 🔧 CLAVE: Limpiamos suscripción cuando no hay usuario
+      if (notificationsSubscriptionRef.current) {
+        console.log('🧹 AuthContext: Limpiando suscripción al cerrar sesión...');
+        notificationsSubscriptionRef.current.unsubscribe();
+        notificationsSubscriptionRef.current = null;
+      }
+      
       setUser(null);
       setProfile(null);
       setUnreadNotificationsCount(0);
-
-      // Limpiamos el servicio de notificaciones
       NotificationService.cleanup();
-      
-      // Limpiamos el badge de la aplicación
       await NotificationService.setBadgeCount(0);
     }
     
-    // Marcamos que hemos terminado de verificar el estado inicial
     setLoading(false);
   };
 
+
   // Función para configurar suscripción a notificaciones en tiempo real
-  const setupNotificationsSubscription = (userId) => {
+   const setupNotificationsSubscription = (userId) => {
     console.log('🔔 AuthContext: Configurando suscripción a notificaciones...');
 
+    // 🔧 CLAVE: Primero limpiamos cualquier suscripción existente
+    if (notificationsSubscriptionRef.current) {
+      console.log('🧹 AuthContext: Limpiando suscripción anterior...');
+      notificationsSubscriptionRef.current.unsubscribe();
+      notificationsSubscriptionRef.current = null;
+    }
+
+    // 🔧 IMPORTANTE: Creamos un nombre de canal único por usuario
+    const channelName = `user_notifications_${userId}`;
+    
     const notificationsSubscription = supabase
-      .channel('user_notifications')
+      .channel(channelName) // Canal único por usuario
       .on(
         'postgres_changes',
         {
@@ -135,15 +144,12 @@ export const AuthProvider = ({ children }) => {
         async (payload) => {
           console.log('🔔 AuthContext: Nueva notificación recibida:', payload.new.title);
           
-          // Incrementamos el conteo de no leídas
           setUnreadNotificationsCount(current => {
             const newCount = current + 1;
-            // Actualizamos el badge
             NotificationService.setBadgeCount(newCount);
             return newCount;
           });
 
-          // Si la notificación tiene una fecha de envío programada, la programamos localmente
           if (payload.new.send_at && new Date(payload.new.send_at) > new Date()) {
             await NotificationService.scheduleLocalNotification(
               payload.new.title,
@@ -163,11 +169,9 @@ export const AuthProvider = ({ children }) => {
           filter: `user_id=eq.${userId}`
         },
         async (payload) => {
-          // Si una notificación se marca como leída, actualizamos el conteo
           if (payload.new.is_read && !payload.old.is_read) {
             setUnreadNotificationsCount(current => {
               const newCount = Math.max(0, current - 1);
-              // Actualizamos el badge
               NotificationService.setBadgeCount(newCount);
               return newCount;
             });
@@ -176,29 +180,37 @@ export const AuthProvider = ({ children }) => {
       )
       .subscribe();
 
-    // Guardamos la referencia para poder cancelar la suscripción después
+    // 🔧 CLAVE: Guardamos la referencia para poder limpiarla después
+    notificationsSubscriptionRef.current = notificationsSubscription;
+    
+    console.log('✅ AuthContext: Suscripción configurada correctamente');
     return notificationsSubscription;
   };
 
   // Efecto que configura el listener de cambios de autenticación cuando el componente se monta
+// Efecto principal corregido
   useEffect(() => {
     console.log('Configurando listener de autenticación...');
     
-    // Obtenemos la sesión actual si existe
     supabase.auth.getSession().then(({ data: { session } }) => {
       console.log('Sesión inicial:', session?.user?.email || 'No hay sesión');
       handleAuthStateChange('INITIAL_SESSION', session);
     });
 
-    // Configuramos el listener para cambios futuros en el estado de autenticación
     const { data: { subscription } } = supabase.auth.onAuthStateChange(handleAuthStateChange);
 
-    // Función de limpieza que remueve el listener cuando el componente se desmonta
+    // 🔧 CLAVE: Función de limpieza mejorada
     return () => {
       console.log('Removiendo listener de autenticación...');
       subscription?.unsubscribe();
       
-      // Limpiamos el servicio de notificaciones
+      // Limpiamos suscripción de notificaciones
+      if (notificationsSubscriptionRef.current) {
+        console.log('🧹 AuthContext: Limpieza final de suscripciones...');
+        notificationsSubscriptionRef.current.unsubscribe();
+        notificationsSubscriptionRef.current = null;
+      }
+      
       NotificationService.cleanup();
     };
   }, []);
@@ -207,6 +219,11 @@ export const AuthProvider = ({ children }) => {
   const signOut = async () => {
     try {
       console.log('Cerrando sesión...');
+
+        if (notificationsSubscriptionRef.current) {
+        notificationsSubscriptionRef.current.unsubscribe();
+        notificationsSubscriptionRef.current = null;
+      }
       
       // Limpiamos todas las notificaciones programadas
       await NotificationService.cancelAllScheduledNotifications();
