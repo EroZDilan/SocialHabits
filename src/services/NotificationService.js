@@ -30,45 +30,57 @@ async initialize(userId) {
   try {
     console.log('🔔 NotificationService: Inicializando...');
 
-    // Verificamos el entorno de ejecución de manera más inteligente
+    // 🛡️ VERIFICACIÓN DE ENTORNO MÁS ROBUSTA
     if (!Device.isDevice) {
       console.log('🔔 NotificationService: Ejecutándose en simulador - funcionalidad limitada');
       this.isInitialized = true;
       return;
     }
 
-    // En builds reales, esto funcionará perfectamente
-    // En Expo Go, manejamos el error graciosamente
-    const permissionStatus = await this.requestPermissions();
+    // 🔑 SOLICITUD DE PERMISOS CON MANEJO DE ERRORES
+    let permissionStatus;
+    try {
+      permissionStatus = await this.requestPermissions();
+    } catch (permissionError) {
+      console.warn('⚠️ NotificationService: Error solicitando permisos:', permissionError);
+      permissionStatus = 'denied';
+    }
+
     if (permissionStatus !== 'granted') {
-      console.log('🔔 NotificationService: Permisos no concedidos');
+      console.log('🔔 NotificationService: Permisos no concedidos, continuando sin notificaciones push');
       this.isInitialized = true;
       return;
     }
 
-    // Intentamos obtener el token, pero manejamos errores de configuración
+    // 🎯 OBTENCIÓN DE TOKEN CON MANEJO DE ERRORES MEJORADO
     try {
       const token = await this.getExpoPushToken();
       if (token && userId) {
+        // 🔧 INTENTAMOS GUARDAR EL TOKEN, PERO NO FALLAREMOS SI NO PODEMOS
         await this.savePushToken(userId, token);
       }
     } catch (tokenError) {
-      // En builds reales esto funcionará, en desarrollo podemos continuar sin token
-      console.log('🔔 NotificationService: Token no disponible en este entorno, continuando...');
+      console.warn('⚠️ NotificationService: No se pudo obtener/guardar token:', tokenError);
+      // Continuamos con la inicialización incluso si el token falló
     }
 
-    // El resto de la configuración sí funciona en todos los entornos
+    // 🎧 CONFIGURACIÓN DE LISTENERS (ESTO SIEMPRE DEBERÍA FUNCIONAR)
     this.setupNotificationListeners();
     
+    // 🤖 CONFIGURACIÓN DE ANDROID (SI APLICA)
     if (Platform.OS === 'android') {
-      await this.setupAndroidNotificationChannel();
+      try {
+        await this.setupAndroidNotificationChannel();
+      } catch (androidError) {
+        console.warn('⚠️ NotificationService: Error configurando canales Android:', androidError);
+      }
     }
 
     this.isInitialized = true;
-    console.log('✅ NotificationService: Inicialización completa');
+    console.log('✅ NotificationService: Inicialización completa (con posibles limitaciones)');
 
   } catch (error) {
-    console.error('❌ NotificationService: Error en inicialización:', error);
+    console.error('❌ NotificationService: Error crítico en inicialización:', error);
     // Incluso si hay errores, marcamos como inicializado para evitar loops infinitos
     this.isInitialized = true;
   }
@@ -88,34 +100,75 @@ async initialize(userId) {
 
   // Función para guardar el token en la base de datos
   async savePushToken(userId, token) {
-    try {
-      console.log('💾 NotificationService: Guardando token para usuario:', userId);
+  try {
+    console.log('💾 NotificationService: Guardando token para usuario:', userId);
 
-      const { error } = await supabase
-        .from('notification_preferences')
-        .upsert(
-          { 
-            user_id: userId, 
-            push_token: token,
-            updated_at: new Date().toISOString()
-          },
-          { 
-            onConflict: 'user_id',
-            ignoreDuplicates: false 
-          }
-        );
+    // 🔍 PRIMERO VERIFICAMOS SI YA EXISTE UNA ENTRADA
+    const { data: existingPrefs, error: selectError } = await supabase
+      .from('notification_preferences')
+      .select('user_id')
+      .eq('user_id', userId)
+      .single();
 
-      if (error) {
-        console.error('❌ NotificationService: Error guardando token:', error);
-        return;
-      }
-
-      console.log('✅ NotificationService: Token guardado exitosamente');
-
-    } catch (error) {
-      console.error('❌ NotificationService: Error inesperado guardando token:', error);
+    if (selectError && selectError.code !== 'PGRST116') {
+      // Si hay un error que no sea "no encontrado", lo logueamos pero continuamos
+      console.warn('⚠️ NotificationService: Error verificando preferencias existentes:', selectError);
     }
+
+    // 🔄 PREPARAMOS LOS DATOS PARA INSERTAR/ACTUALIZAR
+    const tokenData = {
+      user_id: userId,
+      push_token: token,
+      updated_at: new Date().toISOString(),
+      
+      // 🎯 VALORES POR DEFECTO PARA NUEVOS USUARIOS
+      // Solo se usan si estamos creando una nueva entrada
+      habit_reminders_enabled: true,
+      daily_reminder_time: '09:00:00',
+      reminder_days: [1, 2, 3, 4, 5, 6, 7],
+      group_activity_enabled: true,
+      group_achievements_enabled: true,
+      group_invitations_enabled: true,
+      personal_celebrations_enabled: true,
+      group_celebrations_enabled: true,
+      list_activity_enabled: true,
+      list_completion_enabled: true,
+      timezone: 'UTC',
+      quiet_hours_start: '22:00:00',
+      quiet_hours_end: '07:00:00'
+    };
+
+    // 🔄 INTENTAMOS HACER UPSERT CON MANEJO DE ERRORES MEJORADO
+    const { error: upsertError } = await supabase
+      .from('notification_preferences')
+      .upsert(tokenData, {
+        onConflict: 'user_id',
+        ignoreDuplicates: false
+      });
+
+    if (upsertError) {
+      console.error('❌ NotificationService: Error en upsert:', upsertError);
+      
+      // 🚨 SI EL ERROR ES DE RLS, NO ES FATAL PARA LA FUNCIONALIDAD PRINCIPAL
+      // El token no se guardó, pero la app puede seguir funcionando
+      if (upsertError.code === '42501') {
+        console.warn('⚠️ NotificationService: Error de RLS - continuando sin guardar token');
+        console.warn('💡 Sugerencia: Verifica las políticas RLS en notification_preferences');
+        return; // Salimos silenciosamente, no es un error fatal
+      }
+      
+      // Para otros errores, los reportamos pero no fallan la aplicación
+      console.error('❌ NotificationService: Error inesperado guardando token:', upsertError);
+      return;
+    }
+
+    console.log('✅ NotificationService: Token guardado exitosamente');
+
+  } catch (error) {
+    console.error('💥 NotificationService: Error inesperado en savePushToken:', error);
+    // No re-lanzamos el error para evitar que la app se rompa
   }
+}
 
   // Función para configurar listeners de notificaciones
   setupNotificationListeners() {

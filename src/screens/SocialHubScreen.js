@@ -14,6 +14,9 @@ import GroupCreationModal from '../components/GroupCreationModal';
 import GroupInvitationModal from '../components/GroupInvitationModal';
 import PendingInvitationsComponent from '../components/PendingInvitationsComponent';
 import InviteCodeComponent from '../components/InviteCodeComponent';
+import GroupDetailsModal from '../components/GroupDetailsModal';
+import GroupMembersModal from '../components/GroupMembersModal';
+import GroupEditModal from '../components/GroupEditModal';
 
 export default function SocialHubScreen() {
   // Accedemos al usuario autenticado para todas las funcionalidades sociales
@@ -38,6 +41,14 @@ export default function SocialHubScreen() {
   // Estados para el sistema de invitaciones
   const [showInvitationModal, setShowInvitationModal] = useState(false);
   const [selectedGroupForInvitation, setSelectedGroupForInvitation] = useState(null);
+
+  // Añadir después de los estados existentes (línea ~20)
+  
+  // Estados para los nuevos modales de gestión de grupos
+  const [showGroupDetailsModal, setShowGroupDetailsModal] = useState(false);
+  const [showGroupMembersModal, setShowGroupMembersModal] = useState(false);
+  const [showGroupEditModal, setShowGroupEditModal] = useState(false);
+  const [selectedGroupForDetails, setSelectedGroupForDetails] = useState(null);
 
   // Función para cargar todos los grupos donde el usuario es miembro
   // Esta función establece la base para todas las funcionalidades sociales
@@ -286,75 +297,130 @@ export default function SocialHubScreen() {
   };
 
   // Función para mostrar las opciones disponibles para un grupo específico
-  const showGroupOptions = (membership) => {
-    const group = membership.groups;
-    const isAdmin = membership.role === 'admin';
-    
-    console.log('Social Hub: Mostrando opciones para grupo:', group.name, 'Rol:', membership.role);
-    
-    const options = [
-      {
-        text: 'Ver Detalles',
-        onPress: () => viewGroupDetails(group)
-      }
-    ];
-
-    if (isAdmin) {
-      // Añadimos la opción de invitar miembros para administradores
-      options.push({
-        text: 'Invitar Miembros',
-        onPress: () => openInvitationModal(group)
-      });
-      options.push({
-        text: 'Gestionar Miembros',
-        onPress: () => manageGroupMembers(group)
-      });
-      options.push({
-        text: 'Editar Grupo',
-        onPress: () => editGroup(group)
-      });
+  // Reemplazar la función showGroupOptions existente con esta versión completa
+const showGroupOptions = (membership) => {
+  const group = membership.groups;
+  const isAdmin = membership.role === 'admin';
+  const isModerator = membership.role === 'moderator' || membership.role === 'admin';
+  
+  console.log('Social Hub: Mostrando opciones para grupo:', group.name, 'Rol:', membership.role);
+  
+  const options = [
+    {
+      text: '📋 Ver Detalles',
+      onPress: () => viewGroupDetails(membership)
     }
+  ];
 
+  if (isModerator) {
     options.push({
-      text: 'Abandonar Grupo',
+      text: '👥 Gestionar Miembros',
+      onPress: () => manageGroupMembers(group)
+    });
+  }
+
+  if (isAdmin) {
+    options.push({
+      text: '📧 Invitar Miembros',
+      onPress: () => openInvitationModal(group)
+    });
+    options.push({
+      text: '✏️ Editar Grupo',
+      onPress: () => editGroup(group)
+    });
+    options.push({
+      text: '🗑️ Eliminar Grupo',
       style: 'destructive',
-      onPress: () => leaveGroup(membership)
+      onPress: () => deleteGroup(group)
     });
+  }
 
-    options.push({
-      text: 'Cancelar',
-      style: 'cancel'
-    });
+  options.push({
+    text: '🚪 Abandonar Grupo',
+    style: 'destructive',
+    onPress: () => leaveGroup(membership)
+  });
 
-    Alert.alert(group.name, 'Elige una acción:', options);
-  };
+  options.push({
+    text: 'Cancelar',
+    style: 'cancel'
+  });
+
+  Alert.alert(group.name, 'Elige una acción:', options);
+};
 
   // Función placeholder para ver detalles del grupo
-  const viewGroupDetails = (group) => {
-    Alert.alert(
-      'Detalles del Grupo',
-      `Grupo: ${group.name}\n\nDescripción: ${group.description || 'Sin descripción'}\n\nEsta funcionalidad se expandirá para mostrar miembros, hábitos compartidos, y estadísticas del grupo.`,
-      [{ text: 'Entendido', style: 'default' }]
-    );
-  };
+  const viewGroupDetails = (membership) => {
+  console.log('Social Hub: Abriendo detalles del grupo:', membership.groups.name);
+  setSelectedGroupForDetails(membership);
+  setShowGroupDetailsModal(true);
+};
 
   // Función placeholder para gestionar miembros
   const manageGroupMembers = (group) => {
-    Alert.alert(
-      'Gestionar Miembros',
-      'La funcionalidad de gestión de miembros se implementará en el siguiente paso, incluyendo ver lista de miembros y gestión de roles.',
-      [{ text: 'Entendido', style: 'default' }]
-    );
-  };
+  console.log('Social Hub: Abriendo gestión de miembros para:', group.name);
+  
+  // Buscar la membresía del usuario en este grupo para obtener su rol
+  const userMembership = userGroups.find(membership => 
+    membership.groups.id === group.id
+  );
+  
+  if (!userMembership || (userMembership.role !== 'admin' && userMembership.role !== 'moderator')) {
+    Alert.alert('Sin Permisos', 'Solo los administradores y moderadores pueden gestionar miembros.');
+    return;
+  }
+  
+  setSelectedGroupForDetails(userMembership);
+  setShowGroupMembersModal(true);
+};
 
   // Función placeholder para editar grupo
-  const editGroup = (group) => {
-    Alert.alert(
-      'Editar Grupo',
-      'La funcionalidad de edición de grupos se implementará próximamente.',
-      [{ text: 'Entendido', style: 'default' }]
-    );
-  };
+const editGroup = (group) => {
+  console.log('Social Hub: Abriendo editor de grupo:', group.name);
+  
+  // Verificar que el usuario sea administrador
+  const userMembership = userGroups.find(membership => 
+    membership.groups.id === group.id
+  );
+  
+  if (!userMembership || userMembership.role !== 'admin') {
+    Alert.alert('Sin Permisos', 'Solo los administradores pueden editar grupos.');
+    return;
+  }
+  
+  setSelectedGroupForDetails(userMembership);
+  setShowGroupEditModal(true);
+};
+
+const handleGroupUpdated = async (updatedGroup) => {
+  console.log('Social Hub: Grupo actualizado:', updatedGroup.name);
+  
+  // Actualizar la lista local de grupos
+  setUserGroups(currentGroups => 
+    currentGroups.map(membership => 
+      membership.groups.id === updatedGroup.id 
+        ? { ...membership, groups: { ...membership.groups, ...updatedGroup } }
+        : membership
+    )
+  );
+  
+  // Cerrar modales
+  setShowGroupEditModal(false);
+  setShowGroupDetailsModal(false);
+  setSelectedGroupForDetails(null);
+  
+  // Opcionalmente recargar datos completos
+  setTimeout(() => {
+    loadUserGroups();
+  }, 1000);
+};
+
+const closeAllGroupModals = () => {
+  setShowGroupDetailsModal(false);
+  setShowGroupMembersModal(false);
+  setShowGroupEditModal(false);
+  setSelectedGroupForDetails(null);
+};
 
   // Función para abandonar un grupo con confirmación apropiada
   const leaveGroup = (membership) => {
@@ -422,6 +488,153 @@ export default function SocialHubScreen() {
       Alert.alert('Error Inesperado', 'Ocurrió un error inesperado. Intenta nuevamente.');
     }
   };
+
+  // Función completa para eliminar grupo - Añadir a SocialHubScreen.js
+
+// Función para eliminar un grupo (solo administradores)
+const deleteGroup = async (group) => {
+  console.log('🗑️ Iniciando proceso de eliminación de grupo:', group.name);
+
+  // Verificamos que el usuario sea administrador
+  const userMembership = userGroups.find(membership => 
+    membership.groups.id === group.id
+  );
+
+  if (!userMembership || userMembership.role !== 'admin') {
+    Alert.alert('Sin Permisos', 'Solo los administradores pueden eliminar grupos.');
+    return;
+  }
+
+  // Confirmación con información detallada
+  Alert.alert(
+    'Eliminar Grupo',
+    `⚠️ ATENCIÓN: Esta acción NO se puede deshacer.\n\n¿Estás seguro de que quieres eliminar "${group.name}"?\n\nEsto eliminará:\n• Todos los hábitos compartidos del grupo\n• Todas las listas colaborativas\n• Todas las invitaciones pendientes\n• El historial completo del grupo\n\nLos miembros perderán acceso inmediatamente.`,
+    [
+      { text: 'Cancelar', style: 'cancel' },
+      { 
+        text: 'Eliminar Permanentemente', 
+        style: 'destructive',
+        onPress: () => confirmDeleteGroup(group)
+      }
+    ]
+  );
+};
+
+// Función que ejecuta la eliminación del grupo
+const confirmDeleteGroup = async (group) => {
+  console.log('🗑️ Ejecutando eliminación definitiva del grupo:', group.name);
+
+  try {
+    // Mostrar indicador de carga
+    Alert.alert('Eliminando...', 'Por favor espera mientras se elimina el grupo y todos sus datos.');
+
+    // 1. Eliminar todas las invitaciones del grupo
+    console.log('🧹 Eliminando invitaciones del grupo...');
+    const { error: invitationsError } = await supabase
+      .from('group_invitations')
+      .delete()
+      .eq('group_id', group.id);
+
+    if (invitationsError) {
+      console.error('Error eliminando invitaciones:', invitationsError);
+    }
+
+    // 2. Eliminar elementos de listas colaborativas
+    console.log('🧹 Eliminando elementos de listas colaborativas...');
+    const { data: collaborativeLists } = await supabase
+      .from('collaborative_lists')
+      .select('id')
+      .eq('group_id', group.id);
+
+    if (collaborativeLists && collaborativeLists.length > 0) {
+      const listIds = collaborativeLists.map(list => list.id);
+      
+      const { error: listItemsError } = await supabase
+        .from('list_items')
+        .delete()
+        .in('list_id', listIds);
+
+      if (listItemsError) {
+        console.error('Error eliminando elementos de listas:', listItemsError);
+      }
+    }
+
+    // 3. Eliminar listas colaborativas
+    console.log('🧹 Eliminando listas colaborativas...');
+    const { error: listsError } = await supabase
+      .from('collaborative_lists')
+      .delete()
+      .eq('group_id', group.id);
+
+    if (listsError) {
+      console.error('Error eliminando listas colaborativas:', listsError);
+    }
+
+    // 4. Desactivar hábitos compartidos del grupo (no eliminar por el historial)
+    console.log('🧹 Desactivando hábitos compartidos...');
+    const { error: habitsError } = await supabase
+      .from('habits')
+      .update({ is_active: false, group_id: null })
+      .eq('group_id', group.id);
+
+    if (habitsError) {
+      console.error('Error desactivando hábitos:', habitsError);
+    }
+
+    // 5. Eliminar todas las membresías del grupo
+    console.log('🧹 Eliminando membresías del grupo...');
+    const { error: membersError } = await supabase
+      .from('group_members')
+      .delete()
+      .eq('group_id', group.id);
+
+    if (membersError) {
+      console.error('Error eliminando membresías:', membersError);
+      Alert.alert('Error', 'No se pudieron eliminar las membresías del grupo.');
+      return;
+    }
+
+    // 6. Finalmente, eliminar el grupo
+    console.log('🗑️ Eliminando el grupo definitivamente...');
+    const { error: groupError } = await supabase
+      .from('groups')
+      .delete()
+      .eq('id', group.id);
+
+    if (groupError) {
+      console.error('Error eliminando grupo:', groupError);
+      Alert.alert('Error', 'No se pudo eliminar el grupo. Algunos datos pueden haber sido afectados.');
+      return;
+    }
+
+    console.log('✅ Grupo eliminado completamente');
+
+    // Actualizar la lista local inmediatamente
+    setUserGroups(currentGroups => 
+      currentGroups.filter(membership => membership.groups.id !== group.id)
+    );
+
+    // Actualizar estadísticas sociales
+    setSocialStats(currentStats => ({
+      ...currentStats,
+      totalGroups: Math.max(0, currentStats.totalGroups - 1)
+    }));
+
+    // Mostrar confirmación
+    Alert.alert(
+      'Grupo Eliminado',
+      `"${group.name}" ha sido eliminado permanentemente junto con todos sus datos.`,
+      [{ text: 'Entendido', style: 'default' }]
+    );
+
+  } catch (error) {
+    console.error('Error inesperado eliminando grupo:', error);
+    Alert.alert(
+      'Error Inesperado', 
+      'Ocurrió un error durante la eliminación. Algunos datos pueden haber sido afectados. Contacta soporte si persisten los problemas.'
+    );
+  }
+};
 
   // Efecto para cargar datos cuando el componente se monta o el usuario cambia
   useEffect(() => {
@@ -581,6 +794,35 @@ export default function SocialHubScreen() {
         onClose={closeInvitationModal}
         group={selectedGroupForInvitation}
       />
+    {/* Añadir justo antes del último </View> en el JSX de SocialHubScreen */}
+
+      {/* Modal de detalles del grupo */}
+      <GroupDetailsModal
+        visible={showGroupDetailsModal}
+        onClose={closeAllGroupModals}
+        group={selectedGroupForDetails?.groups}
+        userRole={selectedGroupForDetails?.role}
+        onEditGroup={editGroup}
+        onManageMembers={manageGroupMembers}
+        onDeleteGroup={deleteGroup}
+      />
+
+      {/* Modal de gestión de miembros */}
+      <GroupMembersModal
+        visible={showGroupMembersModal}
+        onClose={closeAllGroupModals}
+        group={selectedGroupForDetails?.groups}
+        userRole={selectedGroupForDetails?.role}
+      />
+
+      {/* Modal de edición de grupo */}
+      <GroupEditModal
+        visible={showGroupEditModal}
+        onClose={closeAllGroupModals}
+        group={selectedGroupForDetails?.groups}
+        onGroupUpdated={handleGroupUpdated}
+      />
+
     </View>
   );
 }

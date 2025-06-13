@@ -717,111 +717,105 @@ export default function HabitsScreen() {
   // 🗂️ SECCIÓN 9: CARGA DE DATOS DESDE LA BASE DE DATOS
   // =====================================================
 
-  const loadUserHabits = async () => {
-    if (!user) {
-      console.log('No hay usuario autenticado, no se pueden cargar hábitos');
+// Reemplazar la función loadUserHabits completa en HabitsScreen.js
+// Revertir loadUserHabits a su funcionalidad original
+const loadUserHabits = async () => {
+  if (!user) {
+    console.log('No hay usuario autenticado, no se pueden cargar hábitos');
+    return;
+  }
+
+  try {
+    console.log('Cargando hábitos para el usuario:', user.email);
+    
+    // 🔧 SOLO HÁBITOS PROPIOS DEL USUARIO (personales Y adoptados)
+    console.log('📱 Cargando hábitos del usuario...');
+    const { data: userHabits, error: habitsError } = await supabase
+      .from('habits')
+      .select(`
+        *,
+        groups (
+          id,
+          name,
+          description
+        )
+      `)
+      .eq('user_id', user.id)  // Solo hábitos donde el usuario es el propietario
+      .eq('is_active', true)
+      .order('created_at', { ascending: false });
+
+    if (habitsError) {
+      console.error('Error al cargar hábitos:', habitsError);
+      Alert.alert('Error', 'No se pudieron cargar tus hábitos. Intenta nuevamente.');
       return;
     }
 
-    try {
-      console.log('Cargando hábitos para el usuario:', user.email);
-      
-      console.log('📱 Cargando hábitos personales...');
-      const { data: personalHabits, error: personalError } = await supabase
-        .from('habits')
-        .select('*')
-        .eq('user_id', user.id)
-        .is('group_id', null)
-        .eq('is_active', true)
-        .order('created_at', { ascending: false });
+    console.log(`📱 Hábitos del usuario cargados: ${userHabits?.length || 0}`);
 
-      if (personalError) {
-        console.error('Error al cargar hábitos personales:', personalError);
-        Alert.alert('Error', 'No se pudieron cargar tus hábitos personales. Intenta nuevamente.');
-        return;
-      }
+    // 🔧 SEPARAR HÁBITOS PERSONALES Y ADOPTADOS
+    const personalHabits = (userHabits || []).filter(habit => habit.group_id === null);
+    const adoptedHabits = (userHabits || []).filter(habit => habit.group_id !== null);
 
-      console.log(`📱 Hábitos personales cargados: ${personalHabits?.length || 0}`);
+    console.log(`📊 Desglose: ${personalHabits.length} personales, ${adoptedHabits.length} adoptados de grupos`);
 
-      console.log('👥 Cargando hábitos compartidos de grupos...');
-      const { data: sharedHabits, error: sharedError } = await supabase
-        .from('habits')
-        .select(`
-          *,
-          groups (
-            id,
-            name,
-            description
-          )
-        `)
-        .not('group_id', 'is', null)
-        .eq('is_active', true)
-        .in('group_id', await getUserGroupIds())
-        .order('created_at', { ascending: false });
+    // 🔧 MARCAR HÁBITOS COMO COMPARTIDOS O PERSONALES
+    const allHabits = [
+      ...personalHabits.map(habit => ({ ...habit, isShared: false })),
+      ...adoptedHabits.map(habit => ({ ...habit, isShared: true }))
+    ];
 
-      if (sharedError) {
-        console.error('Error al cargar hábitos compartidos:', sharedError);
-        console.log('Continuando solo con hábitos personales...');
-      }
-
-      console.log(`👥 Hábitos compartidos cargados: ${sharedHabits?.length || 0}`);
-
-      const allHabits = [
-        ...(personalHabits || []).map(habit => ({ ...habit, isShared: false })),
-        ...(sharedHabits || []).map(habit => ({ ...habit, isShared: true }))
-      ];
-
-      console.log(`📊 Total de hábitos combinados: ${allHabits.length}`);
-
-      if (allHabits.length === 0) {
-        console.log('No se encontraron hábitos, creando hábitos de ejemplo...');
-        await createDefaultHabits();
-        return;
-      }
-
-      const habitsWithStats = await Promise.all(
-        allHabits.map(async (habit) => {
-          const stats = await calculateHabitStats(habit.id);
-          return {
-            ...habit,
-            ...stats
-          };
-        })
-      );
-
-      setHabits(habitsWithStats);
-      console.log(`🎉 Carga completa: ${habitsWithStats.length} hábitos con estadísticas`);
-
-    } catch (error) {
-      console.error('Error inesperado al cargar hábitos:', error);
-      Alert.alert('Error', 'Ocurrió un error inesperado. Intenta nuevamente.');
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
+    if (allHabits.length === 0) {
+      console.log('No se encontraron hábitos, creando hábitos de ejemplo...');
+      await createDefaultHabits();
+      return;
     }
-  };
+
+    // 🔧 CALCULAR ESTADÍSTICAS PARA CADA HÁBITO
+    const habitsWithStats = await Promise.all(
+      allHabits.map(async (habit) => {
+        const stats = await calculateHabitStats(habit.id);
+        return {
+          ...habit,
+          ...stats
+        };
+      })
+    );
+
+    setHabits(habitsWithStats);
+    console.log(`🎉 Carga completa: ${habitsWithStats.length} hábitos con estadísticas`);
+
+  } catch (error) {
+    console.error('Error inesperado al cargar hábitos:', error);
+    Alert.alert('Error', 'Ocurrió un error inesperado. Intenta nuevamente.');
+  } finally {
+    setLoading(false);
+    setRefreshing(false);
+  }
+};
 
   const getUserGroupIds = async () => {
-    try {
-      const { data: memberships, error } = await supabase
-        .from('group_members')
-        .select('group_id')
-        .eq('user_id', user.id);
+  try {
+    console.log('🔍 Obteniendo IDs de grupos del usuario...');
+    
+    const { data: memberships, error } = await supabase
+      .from('group_members')
+      .select('group_id')
+      .eq('user_id', user.id);
 
-      if (error) {
-        console.error('Error al obtener IDs de grupos:', error);
-        return [];
-      }
-
-      const groupIds = memberships?.map(m => m.group_id) || [];
-      console.log(`👥 Usuario es miembro de ${groupIds.length} grupos:`, groupIds);
-      return groupIds;
-
-    } catch (error) {
-      console.error('Error inesperado al obtener IDs de grupos:', error);
+    if (error) {
+      console.error('Error al obtener IDs de grupos:', error);
       return [];
     }
-  };
+
+    const groupIds = memberships?.map(m => m.group_id) || [];
+    console.log(`👥 Usuario es miembro de ${groupIds.length} grupos:`, groupIds);
+    return groupIds;
+
+  } catch (error) {
+    console.error('Error inesperado al obtener IDs de grupos:', error);
+    return [];
+  }
+};
 
   const createDefaultHabits = async () => {
     console.log('🏗️ createDefaultHabits: Iniciando creación de hábitos de ejemplo');
@@ -876,123 +870,237 @@ export default function HabitsScreen() {
       setRefreshing(false);
     }
   };
+// Reemplazar completamente loadAvailableSharedHabits
+const loadAvailableSharedHabits = async () => {
+  if (!user) return;
 
-  const loadAvailableSharedHabits = async () => {
-    if (!user) return;
+  setLoadingAvailableHabits(true);
+  try {
+    console.log('🔍 === INICIANDO CARGA DE HÁBITOS DISPONIBLES ===');
+    console.log('🔍 User ID:', user.id);
 
-    setLoadingAvailableHabits(true);
-    try {
-      console.log('🔍 Cargando hábitos compartidos disponibles...');
+    // 🔧 PASO 1: Obtener grupos del usuario
+    const { data: userGroups, error: groupsError } = await supabase
+      .from('group_members')
+      .select('group_id')
+      .eq('user_id', user.id);
 
-      const { data: userGroups, error: groupsError } = await supabase
-        .from('group_members')
-        .select('group_id')
-        .eq('user_id', user.id);
-
-      if (groupsError || !userGroups || userGroups.length === 0) {
-        console.log('🔍 Usuario no pertenece a ningún grupo o error al cargar grupos');
-        setAvailableSharedHabits([]);
-        return;
-      }
-
-      const groupIds = userGroups.map(g => g.group_id);
-      console.log('🔍 Buscando hábitos en grupos:', groupIds);
-
-      const { data: allSharedHabits, error: habitsError } = await supabase
-        .from('habits')
-        .select(`
-          *,
-          groups (
-            id,
-            name,
-            description
-          ),
-          profiles:user_id (
-            username,
-            full_name
-          )
-        `)
-        .in('group_id', groupIds)
-        .eq('is_active', true)
-        .neq('user_id', user.id);
-
-      if (habitsError) {
-        console.error('🔍 Error al cargar hábitos compartidos:', habitsError);
-        setAvailableSharedHabits([]);
-        return;
-      }
-
-      const { data: userHabits, error: userHabitsError } = await supabase
-        .from('habits')
-        .select('group_id, name')
-        .eq('user_id', user.id)
-        .not('group_id', 'is', null);
-
-      if (userHabitsError) {
-        console.error('🔍 Error al cargar hábitos del usuario:', userHabitsError);
-      }
-
-      const userSharedHabits = new Set(
-        (userHabits || []).map(h => `${h.group_id}-${h.name}`)
-      );
-
-      const availableHabits = (allSharedHabits || []).filter(habit => 
-        !userSharedHabits.has(`${habit.group_id}-${habit.name}`)
-      );
-
-      console.log(`🔍 Encontrados ${availableHabits.length} hábitos compartidos disponibles`);
-      setAvailableSharedHabits(availableHabits);
-
-    } catch (error) {
-      console.error('🔍 Error inesperado al cargar hábitos disponibles:', error);
+    if (groupsError) {
+      console.error('🔍 Error cargando grupos:', groupsError);
       setAvailableSharedHabits([]);
-    } finally {
-      setLoadingAvailableHabits(false);
+      return;
     }
-  };
 
-  const adoptSharedHabit = async (sharedHabit) => {
-    console.log('📥 Adoptando hábito compartido:', sharedHabit.name);
+    if (!userGroups || userGroups.length === 0) {
+      console.log('🔍 Usuario no pertenece a ningún grupo');
+      setAvailableSharedHabits([]);
+      return;
+    }
 
-    try {
-      const adoptedHabitData = {
-        name: sharedHabit.name,
-        description: sharedHabit.description,
-        allow_rest_days: sharedHabit.allow_rest_days,
-        rest_days_per_week: sharedHabit.rest_days_per_week,
-        user_id: user.id,
-        group_id: sharedHabit.group_id,
-        is_active: true
-      };
+    const groupIds = userGroups.map(g => g.group_id);
+    console.log('🔍 Grupos del usuario:', groupIds);
 
-      const { data: newHabit, error } = await supabase
-        .from('habits')
-        .insert(adoptedHabitData)
-        .select()
-        .single();
+    // 🔧 PASO 2: Obtener TODOS los hábitos del usuario (para filtrar después)
+    const { data: allUserHabits, error: userHabitsError } = await supabase
+      .from('habits')
+      .select('id, name, group_id, user_id')
+      .eq('user_id', user.id)
+      .eq('is_active', true);
 
-      if (error) {
-        console.error('📥 Error al adoptar hábito:', error);
-        Alert.alert('Error', 'No se pudo adoptar el hábito. Intenta nuevamente.');
-        return;
+    if (userHabitsError) {
+      console.error('🔍 Error cargando hábitos del usuario:', userHabitsError);
+    }
+
+    console.log('🔍 Hábitos del usuario:', allUserHabits?.length || 0);
+    
+    // 🔧 PASO 3: Crear conjunto de hábitos que YA TENGO
+    const myHabitKeys = new Set();
+    (allUserHabits || []).forEach(habit => {
+      if (habit.group_id) {
+        // Para hábitos de grupo, usar group_id + name
+        myHabitKeys.add(`${habit.group_id}-${habit.name}`);
+        console.log(`🔍 Ya tengo hábito: "${habit.name}" del grupo ${habit.group_id}`);
       }
+    });
 
-      console.log('📥 Hábito adoptado exitosamente:', newHabit);
+    console.log('🔍 Total de hábitos ya adoptados:', myHabitKeys.size);
 
-      Alert.alert(
-        'Hábito Adoptado',
-        `¡Genial! Ahora estás siguiendo "${sharedHabit.name}" junto con tu grupo "${sharedHabit.groups.name}".`,
-        [{ text: '¡Awesome!', style: 'default' }]
-      );
+    // 🔧 PASO 4: Obtener hábitos disponibles en mis grupos (creados por otros)
+    const { data: availableHabits, error: availableError } = await supabase
+      .from('habits')
+      .select(`
+        id,
+        name,
+        description,
+        allow_rest_days,
+        rest_days_per_week,
+        user_id,
+        group_id,
+        created_at,
+        groups (
+          id,
+          name,
+          description
+        ),
+        profiles:user_id (
+          username,
+          full_name
+        )
+      `)
+      .in('group_id', groupIds)
+      .neq('user_id', user.id)  // No incluir mis propios hábitos
+      .eq('is_active', true)
+      .order('created_at', { ascending: false }); // Más recientes primero
 
-      await loadUserHabits();
-      await loadAvailableSharedHabits();
-
-    } catch (error) {
-      console.error('📥 Error inesperado al adoptar hábito:', error);
-      Alert.alert('Error Inesperado', 'Ocurrió un error inesperado. Intenta nuevamente.');
+    if (availableError) {
+      console.error('🔍 Error cargando hábitos disponibles:', availableError);
+      setAvailableSharedHabits([]);
+      return;
     }
-  };
+
+    console.log('🔍 Hábitos disponibles en grupos:', availableHabits?.length || 0);
+
+    // 🔧 PASO 5: Filtrar hábitos que NO he adoptado aún
+    const filteredHabits = (availableHabits || []).filter(habit => {
+      const habitKey = `${habit.group_id}-${habit.name}`;
+      const isAlreadyAdopted = myHabitKeys.has(habitKey);
+      
+      if (isAlreadyAdopted) {
+        console.log(`🔍 FILTRADO: "${habit.name}" ya adoptado`);
+      } else {
+        console.log(`🔍 DISPONIBLE: "${habit.name}" del grupo ${habit.groups?.name}`);
+      }
+      
+      return !isAlreadyAdopted;
+    });
+
+    console.log('🔍 Hábitos finales disponibles para adoptar:', filteredHabits.length);
+    
+    setAvailableSharedHabits(filteredHabits);
+    console.log('🔍 === FIN CARGA DE HÁBITOS DISPONIBLES ===');
+
+  } catch (error) {
+    console.error('🔍 Error inesperado:', error);
+    setAvailableSharedHabits([]);
+  } finally {
+    setLoadingAvailableHabits(false);
+  }
+};
+
+// Reemplazar adoptSharedHabit con esta versión que actualiza correctamente
+const adoptSharedHabit = async (sharedHabit) => {
+  console.log('📥 Adoptando hábito compartido:', sharedHabit.name);
+
+  try {
+    // 🔧 CREAR COPIA DEL HÁBITO PARA EL USUARIO ACTUAL
+    const adoptedHabitData = {
+      name: sharedHabit.name,
+      description: sharedHabit.description,
+      allow_rest_days: sharedHabit.allow_rest_days,
+      rest_days_per_week: sharedHabit.rest_days_per_week,
+      user_id: user.id, // El usuario actual se convierte en propietario
+      group_id: sharedHabit.group_id, // Mantiene la referencia al grupo
+      is_active: true
+    };
+
+    console.log('📥 Datos del hábito a adoptar:', adoptedHabitData);
+
+    const { data: newHabit, error } = await supabase
+      .from('habits')
+      .insert(adoptedHabitData)
+      .select(`
+        *,
+        groups (
+          id,
+          name,
+          description
+        )
+      `)
+      .single();
+
+    if (error) {
+      console.error('📥 Error al adoptar hábito:', error);
+      Alert.alert('Error', 'No se pudo adoptar el hábito. Intenta nuevamente.');
+      return;
+    }
+
+    console.log('📥 Hábito adoptado exitosamente:', newHabit);
+
+    // 🔧 MOSTRAR CONFIRMACIÓN
+    Alert.alert(
+      'Hábito Adoptado',
+      `¡Genial! Ahora estás siguiendo "${sharedHabit.name}" junto con tu grupo "${sharedHabit.groups.name}".`,
+      [{ text: '¡Awesome!', style: 'default' }]
+    );
+
+    // 🔧 ACTUALIZAR AMBAS LISTAS
+    // 1. Añadir a la lista de hábitos del usuario
+    const initialStats = await calculateHabitStats(newHabit.id);
+    const newHabitWithStats = {
+      ...newHabit,
+      ...initialStats,
+      isShared: true
+    };
+    
+    setHabits(currentHabits => [newHabitWithStats, ...currentHabits]);
+
+    // 2. Remover de la lista de hábitos disponibles
+    setAvailableSharedHabits(currentAvailable => 
+      currentAvailable.filter(h => 
+        !(h.group_id === sharedHabit.group_id && h.name === sharedHabit.name)
+      )
+    );
+
+    console.log('📥 Listas actualizadas correctamente');
+
+  } catch (error) {
+    console.error('📥 Error inesperado al adoptar hábito:', error);
+    Alert.alert('Error Inesperado', 'Ocurrió un error inesperado. Intenta nuevamente.');
+  }
+};
+
+// Añadir esta función después de adoptSharedHabit
+const refreshAvailableHabits = async () => {
+  console.log('🔄 Refrescando lista de hábitos disponibles...');
+  await loadAvailableSharedHabits();
+};
+
+// Modificar el useEffect existente para refrescar automáticamente
+// Buscar el useEffect que tiene loadUserHabits() y loadAvailableSharedHabits()
+// y reemplazarlo con este:
+
+useEffect(() => {
+  if (user) {
+    loadUserHabits();
+    loadAvailableSharedHabits();
+    
+    // 🔧 REFRESCAR HÁBITOS DISPONIBLES CADA 30 SEGUNDOS
+    const intervalId = setInterval(() => {
+      console.log('🔄 Refresco automático de hábitos disponibles...');
+      loadAvailableSharedHabits();
+    }, 30000); // 30 segundos
+
+    dailyCheckIntervalRef.current = setInterval(() => {
+      checkAndHandleDayReset();
+    }, 60 * 1000);
+    
+    console.log('🕒 Sistema de verificación diaria configurado');
+
+    return () => {
+      if (intervalId) {
+        clearInterval(intervalId);
+      }
+      if (dailyCheckIntervalRef.current) {
+        clearInterval(dailyCheckIntervalRef.current);
+        console.log('🧹 Sistema de verificación diaria limpiado');
+      }
+      
+      if (messageTimeoutRef.current) {
+        clearTimeout(messageTimeoutRef.current);
+      }
+    };
+  }
+}, [user]);
 
   const showSharedHabitDetails = (sharedHabit) => {
     const creator = sharedHabit.profiles?.full_name || sharedHabit.profiles?.username || 'Miembro del grupo';

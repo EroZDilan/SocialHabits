@@ -1,24 +1,32 @@
 {
   "expo": {
-    "name": "SocialHabits",
-    "slug": "SocialHabits",
+    "name": "Sore",
+    "slug": "Sore",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/icon.png",
+    
+    "icon": "./assets/app-icon.png",
+    
     "userInterfaceStyle": "light",
     "newArchEnabled": true,
+    
     "splash": {
       "image": "./assets/splash-icon.png",
       "resizeMode": "contain",
-      "backgroundColor": "#ffffff"
+      "backgroundColor": "#2c3e50" 
     },
+    
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "icon": "./assets/app-icon.png",
+      "bundleIdentifier": "com.erosdilan.socialhabits"
     },
+    
     "android": {
       "adaptiveIcon": {
-        "foregroundImage": "./assets/adaptive-icon.png",
-        "backgroundColor": "#ffffff"
+        
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundColor": "#2c3e50" 
       },
       "edgeToEdgeEnabled": true,
       "package": "com.erosdilan.SocialHabits"
@@ -26,6 +34,7 @@
     "web": {
       "favicon": "./assets/favicon.png"
     },
+    
     "extra": {
       "eas": {
         "projectId": "81f7d080-2048-450f-bc7a-8f1ee23cd273"

@@ -1,53 +1,85 @@
-import React from 'react';
-import { NavigationContainer } from '@react-navigation/native';
-import { View, ActivityIndicator, StyleSheet } from 'react-native';
-
-// Importamos nuestro proveedor de autenticación y el hook para acceder al estado
+import React, { useState, useEffect } from 'react';
+import { StatusBar } from 'expo-status-bar';
+import * as SplashScreen from 'expo-splash-screen';
+import { NavigationContainer } from '@react-navigation/native'; // 🔥 IMPORTACIÓN CLAVE
 import { AuthProvider, useAuth } from './src/contexts/AuthContext';
-import AppNavigator from './src/navigation/AppNavigator';
 import AuthScreen from './src/screens/AuthScreen';
+import AppNavigator from './src/navigation/AppNavigator';
+import CustomSplashScreen from './src/screens/SplashScreen';
 
-// Componente principal que decide qué interfaz mostrar basándose en el estado de autenticación
-// Este componente debe estar dentro del AuthProvider para acceder al contexto de autenticación
+// Prevenir que la splash screen nativa se oculte automáticamente
+SplashScreen.preventAutoHideAsync();
+
+// 🎯 COMPONENTE INTERNO PARA MANEJAR LA LÓGICA DE AUTENTICACIÓN
+// Separamos esta lógica porque necesita acceso al contexto de autenticación
 function AppContent() {
-  // Accedemos al estado de autenticación usando nuestro hook personalizado
   const { user, loading } = useAuth();
 
-  // Mientras verificamos el estado de autenticación inicial, mostramos un indicador de carga
-  // Esto previene mostrar la pantalla incorrecta durante la verificación de sesión existente
+  // 🔧 LÓGICA DE RENDERIZADO CONDICIONAL
+  // Si estamos cargando la sesión, no renderizamos nada (el splash se encarga)
   if (loading) {
+    return null;
+  }
+
+  // 🚪 DECISIÓN DE NAVEGACIÓN BASADA EN AUTENTICACIÓN
+  // Si no hay usuario autenticado, mostramos la pantalla de login
+  // Si hay usuario, mostramos la navegación principal de la app
+  return user ? <AppNavigator /> : <AuthScreen />;
+}
+
+// 🏗️ COMPONENTE PRINCIPAL DE LA APLICACIÓN
+export default function App() {
+  const [isAppReady, setIsAppReady] = useState(false);
+  const [showCustomSplash, setShowCustomSplash] = useState(true);
+
+  useEffect(() => {
+    async function prepare() {
+      try {
+        // 🔄 SIMULACIÓN DE CARGA DE RECURSOS
+        // En una app real, aquí cargarías fuentes, imágenes, o datos iniciales
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        
+        // ✅ MARCAR APP COMO LISTA
+        setIsAppReady(true);
+        
+        // 👋 OCULTAR SPLASH SCREEN NATIVA
+        await SplashScreen.hideAsync();
+      } catch (e) {
+        console.warn('Error durante la inicialización:', e);
+        setIsAppReady(true);
+        await SplashScreen.hideAsync();
+      }
+    }
+
+    prepare();
+  }, []);
+
+  // 🎬 FUNCIÓN DE CALLBACK PARA TERMINAR SPLASH PERSONALIZADA
+  const handleSplashComplete = () => {
+    setShowCustomSplash(false);
+  };
+
+  // 🖼️ MOSTRAR SPLASH PERSONALIZADA MIENTRAS LA APP NO ESTÉ LISTA
+  if (!isAppReady || showCustomSplash) {
     return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#3498db" />
-      </View>
+      <CustomSplashScreen 
+        onAnimationComplete={handleSplashComplete}
+      />
     );
   }
 
-  // Si hay un usuario autenticado, mostramos la aplicación principal con navegación
-  // Si no hay usuario autenticado, mostramos la pantalla de autenticación
+  // 🏛️ ESTRUCTURA PRINCIPAL DE LA APLICACIÓN
+  // Esta es la arquitectura correcta para React Navigation:
+  // NavigationContainer -> AuthProvider -> AppContent
   return (
     <NavigationContainer>
-      {user ? <AppNavigator /> : <AuthScreen />}
+      {/* 🔐 PROVEEDOR DE CONTEXTO DE AUTENTICACIÓN */}
+      <AuthProvider>
+        {/* 📱 CONTENIDO PRINCIPAL DE LA APP */}
+        <AppContent />
+        {/* ⚡ BARRA DE ESTADO */}
+        <StatusBar style="auto" />
+      </AuthProvider>
     </NavigationContainer>
   );
 }
-
-// Componente raíz que envuelve toda la aplicación con el proveedor de autenticación
-// Este es el punto de entrada principal de tu aplicación
-export default function App() {
-  return (
-    <AuthProvider>
-      <AppContent />
-    </AuthProvider>
-  );
-}
-
-// Estilos para la pantalla de carga que aparece durante la verificación inicial de autenticación
-const styles = StyleSheet.create({
-  loadingContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: '#f8f9fa',
-  },
-});
